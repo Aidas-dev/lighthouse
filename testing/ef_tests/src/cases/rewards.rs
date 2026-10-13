@@ -107,6 +107,10 @@ impl<E: EthSpec> Case for RewardsTest<E> {
         self.metadata.description.clone().unwrap_or_default()
     }
 
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+    }
+
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let mut state = self.pre.clone();
         let spec = &testing_spec::<E>(fork_name);
