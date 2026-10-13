@@ -93,29 +93,27 @@ pub use transition::TransitionTest;
 ///    to return `true` for the feature in order for the feature test vector to be tested.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
-    // Placeholder for future feature-gated forks
     // Add new feature-gated forks here before they are incorporated into a main fork
-    #[doc(hidden)]
-    __Placeholder,
+    Eip8321,
 }
 
 impl FeatureName {
     pub fn list_all() -> Vec<FeatureName> {
-        vec![]
+        vec![FeatureName::Eip8321]
     }
 
     /// `ForkName` to use when running the feature tests.
     pub fn fork_name(&self) -> ForkName {
         match self {
-            FeatureName::__Placeholder => unreachable!("Placeholder variant should never be used"),
+            FeatureName::Eip8321 => ForkName::Heze,
         }
     }
 }
 
 impl Display for FeatureName {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FeatureName::__Placeholder => unreachable!("Placeholder variant should never be used"),
+            FeatureName::Eip8321 => f.write_str("eip8321"),
         }
     }
 }

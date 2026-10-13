@@ -896,6 +896,30 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         O::is_enabled_for_fork(fork_name)
     }
 
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+            && matches!(
+                O::handler_name().as_str(),
+                "attestation"
+                    | "attester_slashing"
+                    | "block_header"
+                    | "bls_to_execution_change"
+                    | "builder_deposit_request"
+                    | "builder_exit_request"
+                    | "consolidation_request"
+                    | "deposit_request"
+                    | "execution_payload_bid"
+                    | "parent_execution_payload"
+                    | "payload_attestation"
+                    | "proposer_slashing"
+                    | "sync_aggregate"
+                    | "voluntary_exit"
+                    | "voluntary_exit_churn"
+                    | "withdrawal_request"
+                    | "withdrawals"
+            )
+    }
+
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let operation = match self.operation.as_ref().ok_or(Error::SkippedBls)? {
             Ok(operation) => operation,
