@@ -509,6 +509,12 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
         // only run these tests with real crypto for now.
         cfg!(not(feature = "fake_crypto"))
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+            && cfg!(not(feature = "fake_crypto"))
+            && self.handler_path("eip8321").is_dir()
+    }
 }
 
 #[derive(Educe)]
@@ -533,6 +539,12 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Some sanity tests compute sync committees, which requires real crypto.
         fork_name == ForkName::Base || cfg!(not(feature = "fake_crypto"))
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+            && cfg!(not(feature = "fake_crypto"))
+            && self.handler_path("eip8321").is_dir()
     }
 }
 
@@ -674,6 +686,12 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
     fn handler_name(&self) -> String {
         "finality".into()
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+            && cfg!(not(feature = "fake_crypto"))
+            && self.handler_path("eip8321").is_dir()
+    }
 }
 
 pub struct ForkChoiceHandler<E> {
@@ -749,6 +767,12 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+            && cfg!(not(feature = "fake_crypto"))
+            && self.handler_path("eip8321").is_dir()
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
@@ -834,6 +858,12 @@ impl<E: EthSpec + TypeName> Handler for FastConfirmationHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // FCR vectors carry `bls_setting: 2` (fake signatures), so they must run under fake_crypto.
         fork_name != ForkName::Base && cfg!(feature = "fake_crypto")
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+            && cfg!(feature = "fake_crypto")
+            && self.handler_path("eip8321").is_dir()
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
@@ -1053,6 +1083,10 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
     fn handler_name(&self) -> String {
         "get_custody_groups".into()
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+    }
 }
 
 #[derive(Educe)]
@@ -1072,6 +1106,10 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
     fn handler_name(&self) -> String {
         "compute_columns_for_custody_group".into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
     }
 }
 
@@ -1122,6 +1160,10 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         let fork_name_str = fork_name.to_string();
         self.supported_forks.contains(&fork_name) && self.handler_path(&fork_name_str).exists()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321 && self.handler_path("eip8321").is_dir()
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
@@ -1279,6 +1321,10 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.altair_enabled()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {

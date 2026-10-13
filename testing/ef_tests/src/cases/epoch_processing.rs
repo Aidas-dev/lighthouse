@@ -436,6 +436,30 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         true
     }
 
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip8321
+            && matches!(
+                T::name(),
+                "builder_pending_payments"
+                    | "effective_balance_updates"
+                    | "historical_summaries_update"
+                    | "inactivity_updates"
+                    | "justification_and_finalization"
+                    | "participation_flag_updates"
+                    | "pending_consolidations"
+                    | "pending_deposits"
+                    | "pending_deposits_churn"
+                    | "proposer_lookahead"
+                    | "ptc_window"
+                    | "randao_mixes_reset"
+                    | "registry_updates"
+                    | "rewards_and_penalties"
+                    | "slashings"
+                    | "slashings_reset"
+                    | "sync_committee_updates"
+            )
+    }
+
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
