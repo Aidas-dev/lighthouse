@@ -66,12 +66,14 @@ pub struct VoluntaryExitChurn {
 }
 
 /// Newtype for testing hash-chain RANDAO reveals (EIP-8321).
+#[allow(dead_code)] // Constructed by the integration-test handler.
 #[derive(Debug, Clone)]
 pub struct RandaoBlock<E: EthSpec> {
     block: BeaconBlock<E>,
 }
 
 /// Newtype for testing hash-chain RANDAO commitment registrations (EIP-8321).
+#[allow(dead_code)] // Constructed by the integration-test handler.
 #[derive(Debug, Clone)]
 pub struct RandaoCommitmentRegistrationOperation {
     registration: SignedRandaoCommitmentRegistration,

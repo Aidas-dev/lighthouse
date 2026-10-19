@@ -91,6 +91,7 @@ pub struct PtcWindow;
 #[derive(Debug)]
 pub struct BuilderPendingPayments;
 #[derive(Debug)]
+#[allow(dead_code)] // Constructed by the integration-test handler.
 pub struct PendingRandaoCommitments;
 
 type_name!(
