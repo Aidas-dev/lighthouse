@@ -352,6 +352,14 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
         return process_hash_chain_randao(state, block, proposer_index, commitment);
     }
 
+    // Unregistered validators must leave the hash-chain field empty (EIP-8321).
+    if let Ok(hash_chain_reveal) = block.body().hash_chain_reveal() {
+        block_verify!(
+            *hash_chain_reveal == Hash256::ZERO,
+            BlockProcessingError::RandaoSignatureInvalid
+        );
+    }
+
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
@@ -374,6 +382,12 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     Ok(())
 }
 
+/// Returns `true` if the signature is serialized as `G2_POINT_AT_INFINITY` (`0xc0 || 0x00..`).
+fn is_g2_point_at_infinity(signature: &Signature) -> bool {
+    let bytes = signature.serialize();
+    bytes.first() == Some(&0xc0) && bytes.iter().skip(1).all(|byte| *byte == 0)
+}
+
 /// Verify and apply an EIP-8321 hash-chain RANDAO reveal.
 fn process_hash_chain_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
@@ -392,7 +406,7 @@ fn process_hash_chain_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
         BlockProcessingError::RandaoSignatureInvalid
     );
     block_verify!(
-        *body.randao_reveal() == Signature::empty(),
+        is_g2_point_at_infinity(body.randao_reveal()),
         BlockProcessingError::RandaoSignatureInvalid
     );
 
