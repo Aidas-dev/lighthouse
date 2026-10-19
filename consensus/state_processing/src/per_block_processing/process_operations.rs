@@ -85,9 +85,10 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     }
 
     // [New in Heze:EIP-8321]
-    if state.fork_name_unchecked().heze_enabled() {
-        if let Ok(registrations) = block_body.randao_commitment_registrations() {
-            for registration in registrations.iter() {
+    if state.fork_name_unchecked().heze_enabled()
+        && let Ok(registrations) = block_body.randao_commitment_registrations()
+    {
+        for registration in registrations.iter() {
                 process_randao_commitment_registration(
                     state,
                     registration,
@@ -825,10 +826,10 @@ pub fn apply_deposit<E: EthSpec>(
         .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
-    if increment_eth1_deposit_index {
-        if let Ok(eth1_deposit_index) = state.eth1_deposit_index_mut() {
-            eth1_deposit_index.safe_add_assign(1)?;
-        }
+    if increment_eth1_deposit_index
+        && let Ok(eth1_deposit_index) = state.eth1_deposit_index_mut()
+    {
+        eth1_deposit_index.safe_add_assign(1)?;
     }
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
