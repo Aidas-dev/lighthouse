@@ -342,6 +342,11 @@ impl<E: EthSpec> Operation<E> for RandaoBlock<E> {
         "randao".into()
     }
 
+    fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
+        // EIP-8321 vectors live under the `eip8321` feature directory, not per-fork dirs.
+        false
+    }
+
     fn file_name() -> String {
         "block.ssz_snappy".into()
     }
@@ -374,6 +379,11 @@ impl<E: EthSpec> Operation<E> for RandaoCommitmentRegistrationOperation {
 
     fn handler_name() -> String {
         "randao_commitment_registration".into()
+    }
+
+    fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
+        // EIP-8321 vectors live under the `eip8321` feature directory, not per-fork dirs.
+        false
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {

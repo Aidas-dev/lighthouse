@@ -443,6 +443,11 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
             return false;
         }
 
+        // EIP-8321 vectors live under the `eip8321` feature directory, not per-fork dirs.
+        if T::name() == "pending_randao_commitments" {
+            return false;
+        }
+
         true
     }
 

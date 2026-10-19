@@ -688,6 +688,11 @@ fn epoch_processing_slashings_reset() {
 }
 
 #[test]
+fn epoch_processing_pending_randao_commitments() {
+    EpochProcessingHandler::<Spec, PendingRandaoCommitments>::default().run();
+}
+
+#[test]
 fn epoch_processing_randao_mixes_reset() {
     EpochProcessingHandler::<Spec, RandaoMixesReset>::default().run();
 }
