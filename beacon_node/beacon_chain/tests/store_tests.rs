@@ -1700,7 +1700,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
     // XXX: This is a really nasty way to do this, but we need better test facilities in
     // MockExecutionLayer to address this.
     let deposit_request: DepositRequest = DepositRequest {
-        index: pre_deposit_state.eth1_deposit_index(),
+        index: pre_deposit_state.eth1_deposit_index().unwrap_or_default(),
         pubkey: validator_to_topup.pubkey,
         withdrawal_credentials: validator_to_topup.withdrawal_credentials,
         amount: 63_000_000_000,
