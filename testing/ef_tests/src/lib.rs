@@ -4,9 +4,9 @@ pub use cases::{
     FeatureName, HistoricalRootsUpdate, HistoricalSummariesUpdate, InactivityUpdates,
     JustificationAndFinalization, ParentExecutionPayloadBlock, ParticipationFlagUpdates,
     ParticipationRecordUpdates, PendingBalanceDeposits, PendingConsolidations,
-    PendingDepositsChurn, ProposerLookahead, PtcWindow, RandaoMixesReset, RegistryUpdates,
-    RewardsAndPenalties, Slashings, SlashingsReset, SyncCommitteeUpdates, VoluntaryExitChurn,
-    WithdrawalsPayload,
+    PendingDepositsChurn, PendingRandaoCommitments, ProposerLookahead, PtcWindow, RandaoBlock,
+    RandaoCommitmentRegistrationOperation, RandaoMixesReset, RegistryUpdates, RewardsAndPenalties,
+    Slashings, SlashingsReset, SyncCommitteeUpdates, VoluntaryExitChurn, WithdrawalsPayload,
 };
 pub use decode::log_file_access;
 pub use error::Error;
