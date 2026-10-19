@@ -30,6 +30,7 @@ use crate::{
         ParticipationFlags, PendingAttestation,
     },
     block::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlockHash},
+    randao_commitment::PendingRandaoCommitment,
     builder::{Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal},
     consolidation::PendingConsolidation,
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot},
@@ -464,8 +465,8 @@ impl From<BeaconStateHash> for Hash256 {
             tree_hash(
                 struct_behaviour = "progressive_container",
                 active_fields(
-                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+                    1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
                 )
             )
         )
@@ -523,11 +524,13 @@ where
     pub historical_roots: List<Hash256, E::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
+    #[superstruct(only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
+    #[superstruct(only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
-    #[superstruct(getter(copy))]
+    #[superstruct(only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
@@ -690,7 +693,7 @@ where
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Electra
-    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_requests_start_index: u64,
@@ -809,6 +812,16 @@ where
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Heze))]
     pub ptc_window: Vector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
+
+    // EIP-8321
+    #[compare_fields(as_iter)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Heze))]
+    pub randao_commitments: ProgressiveList<Hash256>,
+    #[compare_fields(as_iter)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Heze))]
+    pub pending_randao_commitments: ProgressiveList<PendingRandaoCommitment>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -2458,6 +2471,10 @@ impl<E: EthSpec> BeaconState<E> {
         }
         if let Ok(mut inactivity_scores) = self.inactivity_scores_mut() {
             inactivity_scores.push(0)?;
+        }
+        // EIP-8321: one commitment entry per validator, initialised to `UNSET_RANDAO_COMMITMENT`.
+        if let Ok(randao_commitments) = self.randao_commitments_mut() {
+            randao_commitments.push(crate::consts::heze::UNSET_RANDAO_COMMITMENT)?;
         }
 
         // Keep the pubkey cache up to date if it was up to date prior to this call.

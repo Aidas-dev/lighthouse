@@ -62,6 +62,16 @@ fn operations_block_header() {
 }
 
 #[test]
+fn operations_randao() {
+    OperationsHandler::<Spec, RandaoBlock<_>>::default().run();
+}
+
+#[test]
+fn operations_randao_commitment_registration() {
+    OperationsHandler::<Spec, RandaoCommitmentRegistrationOperation>::default().run();
+}
+
+#[test]
 fn operations_sync_aggregate() {
     OperationsHandler::<Spec, SyncAggregate<_>>::default().run();
 }

@@ -10,6 +10,7 @@ use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::consts::gloas::PAYLOAD_BUILDER_VERSION;
+use types::consts::heze::{COMMITMENT_REGISTRATION_DELAY, UNSET_RANDAO_COMMITMENT};
 use types::is_builder_withdrawal_credential;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
@@ -83,6 +84,87 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         )?;
     }
 
+    // [New in Heze:EIP-8321]
+    if state.fork_name_unchecked().heze_enabled() {
+        if let Ok(registrations) = block_body.randao_commitment_registrations() {
+            for registration in registrations.iter() {
+                process_randao_commitment_registration(
+                    state,
+                    registration,
+                    verify_signatures,
+                    spec,
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Validates a `SignedRandaoCommitmentRegistration` and queues it for activation.
+///
+/// [New in Heze:EIP-8321]
+pub fn process_randao_commitment_registration<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    signed_registration: &SignedRandaoCommitmentRegistration,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let registration = &signed_registration.message;
+    let index = registration.validator_index as usize;
+
+    let invalid = || BlockProcessingError::RandaoCommitmentRegistrationInvalid { index };
+
+    block_verify!(index < state.validators().len(), invalid());
+    block_verify!(registration.commitment != UNSET_RANDAO_COMMITMENT, invalid());
+    block_verify!(
+        state
+            .randao_commitments()?
+            .get(index)
+            .copied()
+            .unwrap_or(UNSET_RANDAO_COMMITMENT)
+            == UNSET_RANDAO_COMMITMENT,
+        invalid()
+    );
+    block_verify!(
+        !state
+            .pending_randao_commitments()?
+            .iter()
+            .any(|pending| pending.validator_index == registration.validator_index),
+        invalid()
+    );
+
+    if verify_signatures.is_true() {
+        let validator = state
+            .validators()
+            .get(index)
+            .ok_or_else(invalid)?;
+        let pubkey = validator.pubkey.decompress().map_err(|_| invalid())?;
+        // The registration domain is fork-agnostic: `compute_domain` with the genesis fork version.
+        let domain = spec.compute_domain(
+            Domain::RandaoCommitmentRegistration,
+            spec.genesis_fork_version,
+            state.genesis_validators_root(),
+        );
+        let signing_root = SigningData {
+            object_root: registration.tree_hash_root(),
+            domain,
+        }
+        .tree_hash_root();
+        block_verify!(signed_registration.signature.verify(&pubkey, signing_root), invalid());
+    }
+
+    let activation_epoch = state
+        .current_epoch()
+        .safe_add(COMMITMENT_REGISTRATION_DELAY)?;
+    state
+        .pending_randao_commitments_mut()?
+        .push(PendingRandaoCommitment {
+            validator_index: registration.validator_index,
+            commitment: registration.commitment,
+            activation_epoch,
+        })?;
+
     Ok(())
 }
 
@@ -92,7 +174,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
     block_body: BeaconBlockBodyRef<E, Payload>,
 ) -> Result<(), BlockProcessingError> {
-    let checks: [(&str, usize, usize); 6] = [
+    let checks: [(&str, usize, usize); 7] = [
         (
             "proposer_slashings",
             block_body.proposer_slashings().len(),
@@ -128,6 +210,14 @@ pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>
                 .map(|atts| atts.len())
                 .unwrap_or(0),
             E::MaxPayloadAttestations::to_usize(),
+        ),
+        (
+            "randao_commitment_registrations",
+            block_body
+                .randao_commitment_registrations()
+                .map(|registrations| registrations.len())
+                .unwrap_or(0),
+            E::MaxRandaoCommitmentRegistrations::to_usize(),
         ),
     ];
 
@@ -656,16 +746,19 @@ pub fn process_deposits<E: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     // [Modified in Electra:EIP6110]
     // Disable former deposit mechanism once all prior deposits are processed
+    // Heze (EIP-8321) removed the eth1 bridge state, so there are no deposits to process.
+    let Ok(eth1_data) = state.eth1_data() else {
+        return Ok(());
+    };
+    let eth1_deposit_index = state.eth1_deposit_index().unwrap_or_default();
     let deposit_requests_start_index = state.deposit_requests_start_index().unwrap_or(u64::MAX);
-    let eth1_deposit_index_limit = std::cmp::min(
-        deposit_requests_start_index,
-        state.eth1_data().deposit_count,
-    );
+    let eth1_deposit_index_limit =
+        std::cmp::min(deposit_requests_start_index, eth1_data.deposit_count);
 
-    if state.eth1_deposit_index() < eth1_deposit_index_limit {
+    if eth1_deposit_index < eth1_deposit_index_limit {
         let expected_deposit_len = std::cmp::min(
             E::MaxDeposits::to_u64(),
-            eth1_deposit_index_limit.safe_sub(state.eth1_deposit_index())?,
+            eth1_deposit_index_limit.safe_sub(eth1_deposit_index)?,
         );
         block_verify!(
             deposits.len() as u64 == expected_deposit_len,
@@ -692,7 +785,7 @@ pub fn process_deposits<E: EthSpec>(
             verify_deposit_merkle_proof(
                 state,
                 deposit,
-                state.eth1_deposit_index().safe_add(i as u64)?,
+                eth1_deposit_index.safe_add(i as u64)?,
                 spec,
             )
             .map_err(|e| e.into_with_index(i))
@@ -714,18 +807,25 @@ pub fn apply_deposit<E: EthSpec>(
     increment_eth1_deposit_index: bool,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let deposit_index = state.eth1_deposit_index() as usize;
+    let deposit_index = state.eth1_deposit_index().unwrap_or_default() as usize;
     if let Some(proof) = proof {
         let deposit = Deposit {
             proof,
             data: deposit_data.clone(),
         };
-        verify_deposit_merkle_proof(state, &deposit, state.eth1_deposit_index(), spec)
+        verify_deposit_merkle_proof(
+            state,
+            &deposit,
+            state.eth1_deposit_index().unwrap_or_default(),
+            spec,
+        )
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
     if increment_eth1_deposit_index {
-        state.eth1_deposit_index_mut().safe_add_assign(1)?;
+        if let Ok(eth1_deposit_index) = state.eth1_deposit_index_mut() {
+            eth1_deposit_index.safe_add_assign(1)?;
+        }
     }
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key

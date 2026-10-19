@@ -377,6 +377,8 @@ pub struct HezePreset {
     pub max_signed_execution_payload_bid_size_heze: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_signed_inclusion_list_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_randao_commitment_registrations: u64,
 }
 
 impl HezePreset {
@@ -386,6 +388,7 @@ impl HezePreset {
             max_signed_execution_payload_bid_size_heze:
                 E::max_signed_execution_payload_bid_size_heze() as u64,
             max_signed_inclusion_list_size: E::max_signed_inclusion_list_size() as u64,
+            max_randao_commitment_registrations: E::max_randao_commitment_registrations() as u64,
         }
     }
 }

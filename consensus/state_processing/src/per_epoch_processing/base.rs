@@ -1,4 +1,7 @@
-use super::{EpochProcessingSummary, Error, process_registry_updates, process_slashings};
+use super::{
+    EpochProcessingSummary, Error, process_pending_randao_commitments, process_registry_updates,
+    process_slashings,
+};
 use crate::epoch_cache::initialize_epoch_cache;
 use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
@@ -43,6 +46,9 @@ pub fn process_epoch<E: EthSpec>(
 
     // Registry Updates.
     process_registry_updates(state, spec)?;
+
+    // [New in Heze:EIP-8321] Apply activated hash-chain RANDAO commitments.
+    process_pending_randao_commitments(state, spec)?;
 
     // Slashings.
     process_slashings(

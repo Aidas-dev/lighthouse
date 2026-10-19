@@ -420,7 +420,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(slashings_and_exits_span);
 
-        let eth1_data = state.eth1_data().clone();
+        // Heze (EIP-8321) removed `eth1_data` from the block body.
+        let eth1_data = state.eth1_data().cloned().unwrap_or_default();
 
         let deposits = vec![];
 
@@ -804,7 +805,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     state_root: Hash256::ZERO,
                     body: BeaconBlockBodyHeze {
                         randao_reveal,
-                        eth1_data,
                         graffiti,
                         // The operation list lengths are bounded by the op pool packing limits above.
                         proposer_slashings: ProgressiveVariableList::try_from_iter(
@@ -816,8 +816,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         )
                         .map_err(BlockProductionError::SszTypesError)?,
                         attestations: ProgressiveVariableList::try_from_iter(attestations)
-                            .map_err(BlockProductionError::SszTypesError)?,
-                        deposits: ProgressiveVariableList::try_from_iter(deposits)
                             .map_err(BlockProductionError::SszTypesError)?,
                         voluntary_exits: ProgressiveVariableList::try_from_iter(voluntary_exits)
                             .map_err(BlockProductionError::SszTypesError)?,
@@ -832,6 +830,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             payload_attestations,
                         )
                         .map_err(BlockProductionError::SszTypesError)?,
+                        hash_chain_reveal: Hash256::ZERO,
+                        randao_commitment_registrations: ProgressiveVariableList::empty(),
                         _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                     },
                 })

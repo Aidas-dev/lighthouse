@@ -174,6 +174,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type PTCSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type PtcWindowLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxPayloadAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxRandaoCommitmentRegistrations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BuilderPendingPaymentsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxBuildersPerWithdrawalsSweep: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxBuilderDepositRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -466,6 +467,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant for this specification.
     fn max_signed_inclusion_list_size() -> usize;
 
+    /// Returns the `MAX_RANDAO_COMMITMENT_REGISTRATIONS` constant for this specification.
+    fn max_randao_commitment_registrations() -> usize;
+
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn payload_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
@@ -553,6 +557,7 @@ impl EthSpec for MainnetEthSpec {
     type PTCSize = U512;
     type PtcWindowLength = U96; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U4;
+    type MaxRandaoCommitmentRegistrations = U128;
     type MaxBuildersPerWithdrawalsSweep = U16384;
     type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
@@ -584,6 +589,10 @@ impl EthSpec for MainnetEthSpec {
 
     fn max_signed_inclusion_list_size() -> usize {
         41112
+    }
+
+    fn max_randao_commitment_registrations() -> usize {
+        128
     }
 }
 
@@ -623,6 +632,7 @@ impl EthSpec for MinimalEthSpec {
     type PTCSize = U16;
     type PtcWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxBuildersPerWithdrawalsSweep = U16;
+    type MaxRandaoCommitmentRegistrations = U128;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -684,6 +694,10 @@ impl EthSpec for MinimalEthSpec {
 
     fn max_signed_inclusion_list_size() -> usize {
         41112
+    }
+
+    fn max_randao_commitment_registrations() -> usize {
+        128
     }
 }
 
@@ -750,6 +764,7 @@ impl EthSpec for GnosisEthSpec {
     type PTCSize = U512;
     type PtcWindowLength = U48; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U2;
+    type MaxRandaoCommitmentRegistrations = U128;
     type MaxBuildersPerWithdrawalsSweep = U16384;
     type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
@@ -781,6 +796,10 @@ impl EthSpec for GnosisEthSpec {
 
     fn max_signed_inclusion_list_size() -> usize {
         41112
+    }
+
+    fn max_randao_commitment_registrations() -> usize {
+        128
     }
 }
 
