@@ -112,22 +112,25 @@ fn progressive_block_body_errors_propagate() {
         let spec = fork.make_genesis_spec(E::default_spec());
         let mut block = BeaconBlock::<E>::empty(&spec);
         let mut body = block.body_mut();
-        body.set_deposits_from_iter(vec![
-            test_arbitrary_instance();
-            <E as EthSpec>::MaxDeposits::to_usize()
-        ])
-        .unwrap();
-        assert!(matches!(
-            body.deposits_push(test_arbitrary_instance()),
-            Err(BeaconStateError::SszTypesError(_))
-        ));
-        assert!(matches!(
+        // `deposits` was removed from the block body in Heze (EIP-8321).
+        if fork == ForkName::Gloas {
             body.set_deposits_from_iter(vec![
                 test_arbitrary_instance();
-                <E as EthSpec>::MaxDeposits::to_usize() + 1
-            ]),
-            Err(BeaconStateError::SszTypesError(_))
-        ));
+                <E as EthSpec>::MaxDeposits::to_usize()
+            ])
+            .unwrap();
+            assert!(matches!(
+                body.deposits_push(test_arbitrary_instance()),
+                Err(BeaconStateError::SszTypesError(_))
+            ));
+            assert!(matches!(
+                body.set_deposits_from_iter(vec![
+                    test_arbitrary_instance();
+                    <E as EthSpec>::MaxDeposits::to_usize() + 1
+                ]),
+                Err(BeaconStateError::SszTypesError(_))
+            ));
+        }
 
         for _ in 0..<E as EthSpec>::MaxProposerSlashings::to_usize() {
             body.proposer_slashings_push(test_arbitrary_instance())
