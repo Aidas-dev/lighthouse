@@ -976,7 +976,6 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
 
     fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
         feature_name == FeatureName::Eip8321
-            && self.handler_path("eip8321").is_dir()
             && matches!(
                 O::handler_name().as_str(),
                 "attestation"

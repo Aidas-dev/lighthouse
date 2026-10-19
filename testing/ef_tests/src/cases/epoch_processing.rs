@@ -448,7 +448,6 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
 
     fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
         feature_name == FeatureName::Eip8321
-            && self.handler_path("eip8321").is_dir()
             && matches!(
                 T::name(),
                 "builder_pending_payments"
