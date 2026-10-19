@@ -10,6 +10,8 @@ use ssz_types::{ProgressiveVariableList, VariableList};
 pub enum ListRef<'a, T, N: Unsigned> {
     Basic(&'a VariableList<T, N>),
     Progressive(&'a ProgressiveVariableList<T, N>),
+    /// Absent list in forks where the field was removed from the container (e.g. EIP-8321).
+    Empty,
 }
 
 // Manual `Clone`/`Copy` impls to avoid spurious `T: Clone`/`T: Copy` bounds from the derive.
@@ -39,6 +41,7 @@ impl<'a, T, N: Unsigned> ListRef<'a, T, N> {
         match self {
             Self::Basic(list) => list,
             Self::Progressive(list) => list,
+            Self::Empty => &[],
         }
     }
 

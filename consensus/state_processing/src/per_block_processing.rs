@@ -1,4 +1,5 @@
 use crate::consensus_context::ConsensusContext;
+use bls::Signature;
 use errors::{
     BlockOperationError, BlockProcessingError, ExecutionPayloadBidInvalid, HeaderInvalid,
 };
@@ -12,7 +13,10 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
+    consts::{
+        gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
+        heze::{HASH_CHAIN_RANDAO_DST, UNSET_RANDAO_COMMITMENT},
+    },
     *,
 };
 
@@ -210,7 +214,10 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     }
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
-    process_eth1_data(state, block.body().eth1_data())?;
+    // `eth1_data` was removed from the body in Heze (EIP-8321).
+    if let Ok(eth1_data) = block.body().eth1_data() {
+        process_eth1_data(state, eth1_data)?;
+    }
     process_operations(
         state,
         block.body(),
@@ -332,6 +339,19 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    // EIP-8321: validators with a registered hash-chain commitment use the hash-chain reveal,
+    // everyone else keeps the legacy BLS reveal.
+    let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;
+    let commitment = state
+        .randao_commitments()
+        .ok()
+        .and_then(|commitments| commitments.get(proposer_index).copied())
+        .unwrap_or(UNSET_RANDAO_COMMITMENT);
+
+    if commitment != UNSET_RANDAO_COMMITMENT {
+        return process_hash_chain_randao(state, block, proposer_index, commitment);
+    }
+
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
@@ -354,16 +374,82 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     Ok(())
 }
 
+/// Verify and apply an EIP-8321 hash-chain RANDAO reveal.
+fn process_hash_chain_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    state: &mut BeaconState<E>,
+    block: BeaconBlockRef<'_, E, Payload>,
+    proposer_index: usize,
+    commitment: Hash256,
+) -> Result<(), BlockProcessingError> {
+    let body = block.body();
+    let reveal = *body
+        .hash_chain_reveal()
+        .map_err(|_| BlockProcessingError::IncorrectStateType)?;
+
+    // The reveal must be non-zero and the legacy BLS reveal must be the point at infinity.
+    block_verify!(
+        reveal != Hash256::ZERO,
+        BlockProcessingError::RandaoSignatureInvalid
+    );
+    block_verify!(
+        *body.randao_reveal() == Signature::empty(),
+        BlockProcessingError::RandaoSignatureInvalid
+    );
+
+    // `blake3(HASH_CHAIN_RANDAO_DST + reveal) == commitment`
+    let mut preimage = Vec::with_capacity(HASH_CHAIN_RANDAO_DST.len() + 32);
+    preimage.extend_from_slice(HASH_CHAIN_RANDAO_DST);
+    preimage.extend_from_slice(reveal.as_slice());
+    block_verify!(
+        Hash256::from_slice(blake3::hash(&preimage).as_bytes()) == commitment,
+        BlockProcessingError::RandaoSignatureInvalid
+    );
+
+    // The accumulator uses `blake3(mix + reveal)` (not XOR) so copied commitments cannot
+    // be used to cancel out entropy.
+    let epoch = state.current_epoch();
+    let mix = state.get_randao_mix(epoch)?;
+    let mut mix_preimage = [0u8; 64];
+    mix_preimage[..32].copy_from_slice(mix.as_slice());
+    mix_preimage[32..].copy_from_slice(reveal.as_slice());
+    let new_mix = Hash256::from_slice(blake3::hash(&mix_preimage).as_bytes());
+
+    let i = epoch
+        .as_usize()
+        .safe_rem(E::EpochsPerHistoricalVector::to_usize())?;
+    *state
+        .randao_mixes_mut()
+        .get_mut(i)
+        .ok_or(BeaconStateError::RandaoMixesOutOfBounds(i))? = new_mix;
+
+    // The reveal becomes the validator's next commitment.
+    let commitments = state
+        .randao_commitments_mut()
+        .map_err(|_| BlockProcessingError::IncorrectStateType)?;
+    *commitments
+        .get_mut(proposer_index)
+        .ok_or(BlockProcessingError::IncorrectStateType)? = reveal;
+
+    Ok(())
+}
+
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
 pub fn process_eth1_data<E: EthSpec>(
     state: &mut BeaconState<E>,
     eth1_data: &Eth1Data,
 ) -> Result<(), BeaconStateError> {
-    if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data)? {
-        *state.eth1_data_mut() = new_eth1_data;
+    // Heze (EIP-8321) removed the eth1 data fields from the state.
+    let new_eth1_data = get_new_eth1_data(state, eth1_data)?;
+    let Ok(eth1_data_mut) = state.eth1_data_mut() else {
+        return Ok(());
+    };
+    if let Some(new_eth1_data) = new_eth1_data {
+        *eth1_data_mut = new_eth1_data;
     }
 
-    state.eth1_data_votes_mut().push(eth1_data.clone())?;
+    if let Ok(eth1_data_votes) = state.eth1_data_votes_mut() {
+        eth1_data_votes.push(eth1_data.clone())?;
+    }
 
     Ok(())
 }
@@ -376,9 +462,8 @@ pub fn get_new_eth1_data<E: EthSpec>(
 ) -> Result<Option<Eth1Data>, ArithError> {
     let num_votes = state
         .eth1_data_votes()
-        .iter()
-        .filter(|vote| *vote == eth1_data)
-        .count();
+        .map(|votes| votes.iter().filter(|vote| *vote == eth1_data).count())
+        .unwrap_or(0);
 
     // The +1 is to account for the `eth1_data` supplied to the function.
     if num_votes.safe_add(1)?.safe_mul(2)? > E::SlotsPerEth1VotingPeriod::to_usize() {

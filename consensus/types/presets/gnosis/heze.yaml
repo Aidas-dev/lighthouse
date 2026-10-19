@@ -11,3 +11,8 @@ INCLUSION_LIST_COMMITTEE_SIZE: 16
 MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_HEZE: 196934
 # 41,112 bytes, ~40 KiB
 MAX_SIGNED_INCLUSION_LIST_SIZE: 41112
+
+# Max registrations per block
+# ---------------------------------------------------------------
+# 2**7 (= 128)
+MAX_RANDAO_COMMITMENT_REGISTRATIONS: 128

@@ -40,7 +40,10 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         deposit_tree
             .push_leaf(deposit.data.tree_hash_root())
             .map_err(BlockProcessingError::MerkleTreeError)?;
-        state.eth1_data_mut().deposit_root = deposit_tree.root();
+        // `eth1_data` is absent in Heze (EIP-8321); genesis is always pre-Heze.
+        if let Ok(eth1_data) = state.eth1_data_mut() {
+            eth1_data.deposit_root = deposit_tree.root();
+        }
         let Deposit { proof, data } = deposit;
         apply_deposit(&mut state, data, Some(proof), true, spec)?;
     }

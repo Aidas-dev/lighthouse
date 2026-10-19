@@ -5916,7 +5916,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
         drop(slashings_and_exits_span);
 
-        let eth1_data = state.eth1_data().clone();
+        // Heze (EIP-8321) removed `eth1_data`; the field is unused for Heze block construction.
+        let eth1_data = state.eth1_data().cloned().unwrap_or_default();
 
         let deposits = vec![];
 

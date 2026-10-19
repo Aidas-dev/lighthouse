@@ -8,6 +8,7 @@ use safe_arith::SafeArith;
 use tracing::instrument;
 use types::{BeaconState, ChainSpec, EthSpec};
 
+pub use randao_commitments::process_pending_randao_commitments;
 pub use registry_updates::{process_registry_updates, process_registry_updates_slow};
 pub use slashings::{process_slashings, process_slashings_slow};
 pub use weigh_justification_and_finalization::weigh_justification_and_finalization;
@@ -20,6 +21,7 @@ pub mod epoch_processing_summary;
 pub mod errors;
 pub mod historical_roots_update;
 pub mod justification_and_finalization_state;
+pub mod randao_commitments;
 pub mod registry_updates;
 pub mod resets;
 pub mod single_pass;

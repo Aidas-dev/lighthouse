@@ -41,6 +41,7 @@ pub enum Domain {
     BuilderDeposit,
     InclusionListCommittee,
     ExecutionProof,
+    RandaoCommitmentRegistration,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -162,6 +163,7 @@ pub struct ChainSpec {
     pub(crate) domain_builder_deposit: u32,
     pub(crate) domain_inclusion_list_committee: u32,
     pub(crate) domain_execution_proof: u32,
+    pub(crate) domain_randao_commitment_registration: u32,
 
     /*
      * Fork choice
@@ -577,6 +579,7 @@ impl ChainSpec {
             Domain::BuilderDeposit => self.domain_builder_deposit,
             Domain::InclusionListCommittee => self.domain_inclusion_list_committee,
             Domain::ExecutionProof => self.domain_execution_proof,
+            Domain::RandaoCommitmentRegistration => self.domain_randao_commitment_registration,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
@@ -1322,6 +1325,7 @@ impl ChainSpec {
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
             domain_inclusion_list_committee: 0x10,
+            domain_randao_commitment_registration: 0x11,
             domain_execution_proof: 0x0F,
 
             /*
@@ -1778,6 +1782,7 @@ impl ChainSpec {
             domain_proposer_preferences: 0x0D,
             domain_builder_deposit: 0x0E,
             domain_inclusion_list_committee: 0x10,
+            domain_randao_commitment_registration: 0x11,
             domain_execution_proof: 0x0F,
 
             /*
@@ -3384,6 +3389,8 @@ mod tests {
         test_domain(
             Domain::InclusionListCommittee,
             spec.domain_inclusion_list_committee,
+            Domain::RandaoCommitmentRegistration,
+            spec.domain_randao_commitment_registration,
             &spec,
         );
         test_domain(

@@ -1,4 +1,5 @@
 use ssz_types::BitVector;
+use milhouse::ProgressiveList;
 use std::mem;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec,
@@ -43,10 +44,7 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         block_roots: pre.block_roots.clone(),
         state_roots: pre.state_roots.clone(),
         historical_roots: mem::take(&mut pre.historical_roots),
-        // Eth1
-        eth1_data: pre.eth1_data.clone(),
-        eth1_data_votes: mem::take(&mut pre.eth1_data_votes),
-        eth1_deposit_index: pre.eth1_deposit_index,
+        // Eth1 fields were removed from the state in Heze (EIP-8321).
         // Registry
         validators: mem::take(&mut pre.validators),
         balances: mem::take(&mut pre.balances),
@@ -92,8 +90,7 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
-        // Electra
-        deposit_requests_start_index: pre.deposit_requests_start_index,
+        // Electra (`deposit_requests_start_index` was removed in Heze, EIP-8321)
         deposit_balance_to_consume: pre.deposit_balance_to_consume,
         exit_balance_to_consume: pre.exit_balance_to_consume,
         earliest_exit_epoch: pre.earliest_exit_epoch,
@@ -112,6 +109,9 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         latest_block_hash: pre.latest_block_hash,
         payload_expected_withdrawals: mem::take(&mut pre.payload_expected_withdrawals),
         ptc_window: pre.ptc_window.clone(),
+        // EIP-8321: all validators start unregistered, so both lists begin empty.
+        randao_commitments: ProgressiveList::empty(),
+        pending_randao_commitments: ProgressiveList::empty(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),

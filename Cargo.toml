@@ -149,6 +149,7 @@ eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
 eth2_keystore = { path = "crypto/eth2_keystore" }
 eth2_network_config = { path = "common/eth2_network_config" }
 eth2_wallet = { path = "crypto/eth2_wallet" }
+blake3 = "1.8.7"
 ethereum_hashing = "0.8.0"
 ethereum_serde_utils = "0.8.1"
 ethereum_ssz = { version = "0.10.0", features = ["context_deserialize"] }

@@ -66,6 +66,10 @@ pub enum BlockProcessingError {
     SyncAggregateInvalid {
         reason: SyncAggregateInvalid,
     },
+    /// [New in Heze:EIP-8321] Invalid hash-chain RANDAO commitment registration.
+    RandaoCommitmentRegistrationInvalid {
+        index: usize,
+    },
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
