@@ -3826,6 +3826,14 @@ impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
 /// Must match the `active_fields` attribute on the Gloas and Heze variants.
 pub const BEACON_STATE_ACTIVE_FIELDS: [bool; 46] = [true; 46];
 
+/// EIP-8321 `active_fields(width=48, gaps=(8, 9, 10, 28))` for the Heze state.
+pub const BEACON_STATE_ACTIVE_FIELDS_HEZE: [bool; 48] = [
+    true, true, true, true, true, true, true, true, false, false, false, true, true, true, true,
+    true, true, true, true, true, true, true, true, true, true, true, true, true, false, true,
+    true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+    true, true,
+];
+
 impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
@@ -3968,9 +3976,14 @@ impl<E: EthSpec> BeaconState<E> {
 
         // [Modified in Gloas:EIP7688] the state is a progressive container.
         if self.fork_name_unchecked().gloas_enabled() {
+            let active_fields: &[bool] = if self.fork_name_unchecked().heze_enabled() {
+                &BEACON_STATE_ACTIVE_FIELDS_HEZE
+            } else {
+                &BEACON_STATE_ACTIVE_FIELDS
+            };
             return Ok(merkle_proof::progressive_container_proof(
                 leaves,
-                &BEACON_STATE_ACTIVE_FIELDS,
+                active_fields,
                 field_index,
             )?);
         }
@@ -4160,9 +4173,13 @@ mod progressive_container_tests {
             BeaconStateGloas::<MainnetEthSpec>::NUM_FIELDS
         );
         assert_eq!(
-            BEACON_STATE_ACTIVE_FIELDS.len(),
+            BEACON_STATE_ACTIVE_FIELDS_HEZE
+                .iter()
+                .filter(|active| **active)
+                .count(),
             BeaconStateHeze::<MainnetEthSpec>::NUM_FIELDS
         );
+        assert_eq!(BEACON_STATE_ACTIVE_FIELDS_HEZE.len(), 48);
     }
 }
 

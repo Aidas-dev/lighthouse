@@ -214,7 +214,10 @@ mod test {
         .expect("should build state");
 
         assert_eq!(
-            state.eth1_data().map(|eth1_data| eth1_data.block_hash).unwrap_or_default(),
+            state
+                .eth1_data()
+                .map(|eth1_data| eth1_data.block_hash)
+                .unwrap_or_default(),
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );
@@ -372,7 +375,10 @@ mod test {
         .expect("should build state");
 
         assert_eq!(
-            state.eth1_data().map(|eth1_data| eth1_data.block_hash).unwrap_or_default(),
+            state
+                .eth1_data()
+                .map(|eth1_data| eth1_data.block_hash)
+                .unwrap_or_default(),
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );
