@@ -11,7 +11,17 @@ use crate::{Epoch, ForkName, Hash256};
 /// Spec: <https://github.com/ethereum/consensus-specs/blob/master/specs/_features/eip8321/beacon-chain.md>
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Default, PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize, Encode, Decode,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
     TreeHash,
 )]
 #[context_deserialize(ForkName)]
@@ -25,7 +35,17 @@ pub struct PendingRandaoCommitment {
 /// A validator's registration of a hash-chain RANDAO tip.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Default, PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize, Encode, Decode,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
     TreeHash,
 )]
 #[context_deserialize(ForkName)]

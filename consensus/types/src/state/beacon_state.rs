@@ -30,7 +30,6 @@ use crate::{
         ParticipationFlags, PendingAttestation,
     },
     block::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlockHash},
-    randao_commitment::PendingRandaoCommitment,
     builder::{Builder, BuilderIndex, BuilderPendingPayment, BuilderPendingWithdrawal},
     consolidation::PendingConsolidation,
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, RelativeEpoch, RelativeEpochError, Slot},
@@ -47,6 +46,7 @@ use crate::{
         FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_FIELD_INDEX,
         NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA,
     },
+    randao_commitment::PendingRandaoCommitment,
     state::{
         BlockRootsIter, CommitteeCache, EpochCache, EpochCacheError, ExitCache, HistoricalBatch,
         HistoricalSummary, ProgressiveBalancesCache, PubkeyCache, SlashingsCache,
@@ -530,7 +530,10 @@ where
     #[superstruct(only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
-    #[superstruct(only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
+    #[superstruct(
+        only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+        partial_getter(copy)
+    )]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,

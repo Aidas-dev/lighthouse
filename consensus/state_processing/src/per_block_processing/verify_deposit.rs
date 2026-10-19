@@ -58,7 +58,10 @@ pub fn verify_deposit_merkle_proof<E: EthSpec>(
 ) -> Result<()> {
     let leaf = deposit.data.tree_hash_root();
     // Heze (EIP-8321) removed `eth1_data`; deposits can no longer be processed there.
-    let deposit_root = state.eth1_data().map(|d| d.deposit_root).unwrap_or_default();
+    let deposit_root = state
+        .eth1_data()
+        .map(|d| d.deposit_root)
+        .unwrap_or_default();
 
     verify!(
         verify_merkle_proof(

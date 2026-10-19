@@ -14,8 +14,7 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     ListRef, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
-    SignedRandaoCommitmentRegistration,
-    SignedExecutionPayloadBidRef,
+    SignedExecutionPayloadBidRef, SignedRandaoCommitmentRegistration,
     attestation::{
         AttestationBase, AttestationElectra, AttestationGloas, AttestationRef, AttestationRefMut,
         PayloadAttestation,
@@ -245,8 +244,10 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Heze))]
     pub hash_chain_reveal: Hash256,
     #[superstruct(only(Heze))]
-    pub randao_commitment_registrations:
-        ProgressiveVariableList<SignedRandaoCommitmentRegistration, E::MaxRandaoCommitmentRegistrations>,
+    pub randao_commitment_registrations: ProgressiveVariableList<
+        SignedRandaoCommitmentRegistration,
+        E::MaxRandaoCommitmentRegistrations,
+    >,
     #[superstruct(only(Base, Altair, Gloas, Heze))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]

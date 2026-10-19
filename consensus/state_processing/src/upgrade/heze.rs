@@ -1,5 +1,5 @@
-use ssz_types::BitVector;
 use milhouse::ProgressiveList;
+use ssz_types::BitVector;
 use std::mem;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec,

@@ -116,7 +116,10 @@ pub fn process_randao_commitment_registration<E: EthSpec>(
     let invalid = || BlockProcessingError::RandaoCommitmentRegistrationInvalid { index };
 
     block_verify!(index < state.validators().len(), invalid());
-    block_verify!(registration.commitment != UNSET_RANDAO_COMMITMENT, invalid());
+    block_verify!(
+        registration.commitment != UNSET_RANDAO_COMMITMENT,
+        invalid()
+    );
     block_verify!(
         state
             .randao_commitments()?
@@ -135,10 +138,7 @@ pub fn process_randao_commitment_registration<E: EthSpec>(
     );
 
     if verify_signatures.is_true() {
-        let validator = state
-            .validators()
-            .get(index)
-            .ok_or_else(invalid)?;
+        let validator = state.validators().get(index).ok_or_else(invalid)?;
         let pubkey = validator.pubkey.decompress().map_err(|_| invalid())?;
         // The registration domain is fork-agnostic: `compute_domain` with the genesis fork version.
         let domain = spec.compute_domain(
@@ -151,7 +151,10 @@ pub fn process_randao_commitment_registration<E: EthSpec>(
             domain,
         }
         .tree_hash_root();
-        block_verify!(signed_registration.signature.verify(&pubkey, signing_root), invalid());
+        block_verify!(
+            signed_registration.signature.verify(&pubkey, signing_root),
+            invalid()
+        );
     }
 
     let activation_epoch = state
@@ -819,7 +822,7 @@ pub fn apply_deposit<E: EthSpec>(
             state.eth1_deposit_index().unwrap_or_default(),
             spec,
         )
-            .map_err(|e| e.into_with_index(deposit_index))?;
+        .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
     if increment_eth1_deposit_index {
