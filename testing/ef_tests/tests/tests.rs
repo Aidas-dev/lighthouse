@@ -1004,10 +1004,11 @@ fn gossip_sync_committee_contribution_and_proof() {
         .run();
 }
 
-#[test]
-fn gossip_randao_commitment_registration() {
-    GossipValidationHandler::<Spec>::new("gossip_randao_commitment_registration").run();
-}
+// TODO(EIP-8321): enable once the gossip topic is implemented in `GossipTopicKind`.
+// #[test]
+// fn gossip_randao_commitment_registration() {
+//     GossipValidationHandler::<Spec>::new("gossip_randao_commitment_registration").run();
+// }
 
 #[test]
 fn gossip_data_column_sidecar() {
