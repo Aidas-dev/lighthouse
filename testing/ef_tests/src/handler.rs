@@ -60,7 +60,11 @@ pub trait Handler {
         // e.g. consensus-spec-tests/tests/general/[feature_name]/[runner_name]
         // e.g. consensus-spec-tests/tests/general/peerdas/ssz_static
         for feature_name in FeatureName::list_all() {
-            if self.is_enabled_for_feature(feature_name) {
+            // Feature vectors are optional (EIP feature directories are not part of published
+            // consensus-spec-tests releases). Skip handlers whose directory is absent.
+            if self.is_enabled_for_feature(feature_name)
+                && self.handler_path(&feature_name.to_string()).is_dir()
+            {
                 self.run_for_feature(feature_name);
             }
         }

@@ -66,9 +66,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
     }
 
     fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
-        cfg!(not(feature = "fake_crypto"))
-            && feature_name == FeatureName::Eip8321
-            && self.handler_path("eip8321").is_dir()
+        cfg!(not(feature = "fake_crypto")) && feature_name == FeatureName::Eip8321
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
