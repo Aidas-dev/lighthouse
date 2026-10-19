@@ -76,9 +76,18 @@ impl SignedRandaoCommitmentRegistration {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    mod pending_randao_commitment {
+        use super::super::*;
+        ssz_and_tree_hash_tests!(PendingRandaoCommitment);
+    }
 
-    ssz_and_tree_hash_tests!(PendingRandaoCommitment);
-    ssz_and_tree_hash_tests!(RandaoCommitmentRegistration);
-    ssz_and_tree_hash_tests!(SignedRandaoCommitmentRegistration);
+    mod randao_commitment_registration {
+        use super::super::*;
+        ssz_and_tree_hash_tests!(RandaoCommitmentRegistration);
+    }
+
+    mod signed_randao_commitment_registration {
+        use super::super::*;
+        ssz_and_tree_hash_tests!(SignedRandaoCommitmentRegistration);
+    }
 }

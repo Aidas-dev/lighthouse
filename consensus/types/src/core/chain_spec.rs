@@ -3389,6 +3389,9 @@ mod tests {
         test_domain(
             Domain::InclusionListCommittee,
             spec.domain_inclusion_list_committee,
+            &spec,
+        );
+        test_domain(
             Domain::RandaoCommitmentRegistration,
             spec.domain_randao_commitment_registration,
             &spec,
