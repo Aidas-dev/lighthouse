@@ -89,13 +89,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         && let Ok(registrations) = block_body.randao_commitment_registrations()
     {
         for registration in registrations.iter() {
-                process_randao_commitment_registration(
-                    state,
-                    registration,
-                    verify_signatures,
-                    spec,
-                )?;
-            }
+            process_randao_commitment_registration(state, registration, verify_signatures, spec)?;
         }
     }
 
@@ -826,9 +820,7 @@ pub fn apply_deposit<E: EthSpec>(
         .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
-    if increment_eth1_deposit_index
-        && let Ok(eth1_deposit_index) = state.eth1_deposit_index_mut()
-    {
+    if increment_eth1_deposit_index && let Ok(eth1_deposit_index) = state.eth1_deposit_index_mut() {
         eth1_deposit_index.safe_add_assign(1)?;
     }
 
