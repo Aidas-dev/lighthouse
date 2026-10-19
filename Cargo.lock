@@ -10490,7 +10490,6 @@ dependencies = [
  "alloy-rlp",
  "arbitrary",
  "beacon_chain",
- "blake3",
  "bls",
  "compare_fields",
  "context_deserialize",
