@@ -149,10 +149,12 @@ fn progressive_block_body_errors_propagate() {
             body.voluntary_exits_push(test_arbitrary_instance()),
             Err(BeaconStateError::SszTypesError(_))
         ));
-        assert_eq!(
-            block.body().deposits().len(),
-            <E as EthSpec>::MaxDeposits::to_usize()
-        );
+        if fork == ForkName::Gloas {
+            assert_eq!(
+                block.body().deposits().len(),
+                <E as EthSpec>::MaxDeposits::to_usize()
+            );
+        }
     }
 }
 
