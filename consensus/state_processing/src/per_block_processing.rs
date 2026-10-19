@@ -397,7 +397,7 @@ fn process_hash_chain_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     );
 
     // `blake3(HASH_CHAIN_RANDAO_DST + reveal) == commitment`
-    let mut preimage = Vec::with_capacity(HASH_CHAIN_RANDAO_DST.len() + 32);
+    let mut preimage = Vec::with_capacity(HASH_CHAIN_RANDAO_DST.len().safe_add(32)?);
     preimage.extend_from_slice(HASH_CHAIN_RANDAO_DST);
     preimage.extend_from_slice(reveal.as_slice());
     block_verify!(
