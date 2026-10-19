@@ -32,8 +32,8 @@ portable = ["bls/supranational-portable"]
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true, features = ["derive"] }
 arbitrary = { workspace = true, features = ["derive"], optional = true }
-bls = { workspace = true }
 blake3 = { workspace = true }
+bls = { workspace = true }
 compare_fields = { workspace = true }
 context_deserialize = { workspace = true }
 educe = { workspace = true }

@@ -22,8 +22,8 @@ spec-minimal = ["types/spec-minimal"]
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-bls = { workspace = true }
 blake3 = { workspace = true }
+bls = { workspace = true }
 educe = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
