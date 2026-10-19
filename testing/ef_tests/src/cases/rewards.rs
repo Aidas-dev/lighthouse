@@ -108,7 +108,7 @@ impl<E: EthSpec> Case for RewardsTest<E> {
     }
 
     fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip8321
+        feature_name == FeatureName::Eip8321 && self.handler_path("eip8321").is_dir()
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
