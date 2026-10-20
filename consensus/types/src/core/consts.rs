@@ -51,7 +51,4 @@ pub mod heze {
 
     /// Sentinel commitment indicating a validator has not registered a hash chain.
     pub const UNSET_RANDAO_COMMITMENT: Hash256 = Hash256::ZERO;
-
-    /// Number of epochs between a commitment registration and its activation.
-    pub const COMMITMENT_REGISTRATION_DELAY: u64 = 3;
 }
