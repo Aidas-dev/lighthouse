@@ -345,6 +345,9 @@ pub enum BlockProductionError {
     GloasNotImplemented(String),
     // TODO(heze): Remove this once Heze is implemented
     HezeNotImplemented(String),
+    /// EIP-8321: the proposer has registered a hash-chain commitment, but the validator client
+    /// did not supply a `hash_chain_reveal` for this block.
+    HashChainRandaoUnsupported,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

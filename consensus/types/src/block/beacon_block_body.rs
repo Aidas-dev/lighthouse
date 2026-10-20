@@ -62,6 +62,11 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 /// Must match the `active_fields` attribute on the struct.
 pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS: [bool; 13] = [true; 13];
 
+/// EIP-8321 `active_fields(width=15, gaps=(1, 6))` for the Heze `BeaconBlockBody`.
+pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE: [bool; 15] = [
+    true, false, true, true, true, true, false, true, true, true, true, true, true, true, true,
+];
+
 /// The body of a `BeaconChain` block, containing operations.
 ///
 /// This *superstruct* abstracts over the hard-fork.
@@ -455,9 +460,14 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
 
         proof.push(signature.tree_hash_root());
 
+        let active_fields: &[bool] = if self.fork_name().heze_enabled() {
+            &BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE
+        } else {
+            &BEACON_BLOCK_BODY_ACTIVE_FIELDS
+        };
         proof.extend(merkle_proof::progressive_container_proof(
             &self.body_merkle_leaves(),
-            &BEACON_BLOCK_BODY_ACTIVE_FIELDS,
+            active_fields,
             SIGNED_EXECUTION_PAYLOAD_BID_FIELD_INDEX,
         )?);
 

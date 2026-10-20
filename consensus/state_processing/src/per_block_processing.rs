@@ -362,13 +362,12 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
-        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         block_verify!(
             randao_signature_set(
                 state,
                 |i| get_pubkey_from_state(state, i),
                 block,
-                Some(proposer_index),
+                Some(proposer_index as u64),
                 spec
             )?
             .verify(),

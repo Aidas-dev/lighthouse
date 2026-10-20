@@ -4,7 +4,9 @@ use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
-use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
+use crate::per_block_processing::errors::{
+    BlockProcessingError, ExitInvalid, IntoWithIndex, RandaoCommitmentRegistrationInvalidReason,
+};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
 use ssz_types::FixedVector;
 use typenum::U33;
@@ -108,12 +110,16 @@ pub fn process_randao_commitment_registration<E: EthSpec>(
     let registration = &signed_registration.message;
     let index = registration.validator_index as usize;
 
-    let invalid = || BlockProcessingError::RandaoCommitmentRegistrationInvalid { index };
+    let invalid =
+        |reason| BlockProcessingError::RandaoCommitmentRegistrationInvalid { index, reason };
 
-    block_verify!(index < state.validators().len(), invalid());
+    block_verify!(
+        index < state.validators().len(),
+        invalid(RandaoCommitmentRegistrationInvalidReason::ValidatorUnknown)
+    );
     block_verify!(
         registration.commitment != UNSET_RANDAO_COMMITMENT,
-        invalid()
+        invalid(RandaoCommitmentRegistrationInvalidReason::CommitmentUnset)
     );
     block_verify!(
         state
@@ -122,19 +128,25 @@ pub fn process_randao_commitment_registration<E: EthSpec>(
             .copied()
             .unwrap_or(UNSET_RANDAO_COMMITMENT)
             == UNSET_RANDAO_COMMITMENT,
-        invalid()
+        invalid(RandaoCommitmentRegistrationInvalidReason::CommitmentAlreadySet)
     );
     block_verify!(
         !state
             .pending_randao_commitments()?
             .iter()
             .any(|pending| pending.validator_index == registration.validator_index),
-        invalid()
+        invalid(RandaoCommitmentRegistrationInvalidReason::CommitmentAlreadyPending)
     );
 
     if verify_signatures.is_true() {
-        let validator = state.validators().get(index).ok_or_else(invalid)?;
-        let pubkey = validator.pubkey.decompress().map_err(|_| invalid())?;
+        let validator = state
+            .validators()
+            .get(index)
+            .ok_or_else(|| invalid(RandaoCommitmentRegistrationInvalidReason::ValidatorUnknown))?;
+        let pubkey = validator
+            .pubkey
+            .decompress()
+            .map_err(|_| invalid(RandaoCommitmentRegistrationInvalidReason::BadSignature))?;
         // The registration domain is fork-agnostic: `compute_domain` with the genesis fork version.
         let domain = spec.compute_domain(
             Domain::RandaoCommitmentRegistration,
@@ -148,7 +160,7 @@ pub fn process_randao_commitment_registration<E: EthSpec>(
         .tree_hash_root();
         block_verify!(
             signed_registration.signature.verify(&pubkey, signing_root),
-            invalid()
+            invalid(RandaoCommitmentRegistrationInvalidReason::BadSignature)
         );
     }
 
