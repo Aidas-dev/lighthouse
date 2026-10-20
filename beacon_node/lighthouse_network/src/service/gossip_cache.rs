@@ -269,6 +269,8 @@ impl GossipCache {
             // Relayed proofs are never queued for republication.
             GossipKind::ExecutionProof => None,
             GossipKind::InclusionList => self.inclusion_list,
+            // Registrations are re-broadcast by the validator client, not the beacon node cache.
+            GossipKind::RandaoCommitmentRegistration => None,
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
         };

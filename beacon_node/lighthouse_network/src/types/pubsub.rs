@@ -17,8 +17,9 @@ use types::{
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
     SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
     SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedInclusionList,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProofEnvelope,
+    SignedProposerPreferences, SignedRandaoCommitmentRegistration, SignedVoluntaryExit,
+    SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    execution::SignedExecutionProofEnvelope,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +56,8 @@ pub enum PubsubMessage<E: EthSpec> {
     ExecutionProof(Arc<SignedExecutionProofEnvelope>),
     /// Gossipsub message providing notification of a signed inclusion list.
     InclusionList(Box<SignedInclusionList>),
+    /// Gossipsub message providing notification of an EIP-8321 RANDAO commitment registration.
+    RandaoCommitmentRegistration(Box<SignedRandaoCommitmentRegistration>),
     /// Gossipsub message providing notification of a light client finality update.
     LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
@@ -181,6 +184,9 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::ProposerPreferences(_) => GossipKind::ProposerPreferences,
             PubsubMessage::ExecutionProof(_) => GossipKind::ExecutionProof,
             PubsubMessage::InclusionList(_) => GossipKind::InclusionList,
+            PubsubMessage::RandaoCommitmentRegistration(_) => {
+                GossipKind::RandaoCommitmentRegistration
+            }
             PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
             PubsubMessage::LightClientOptimisticUpdate(_) => {
                 GossipKind::LightClientOptimisticUpdate
@@ -446,6 +452,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::InclusionList(Box::new(inclusion_list)))
                     }
+                    GossipKind::RandaoCommitmentRegistration => {
+                        let registration = SignedRandaoCommitmentRegistration::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::RandaoCommitmentRegistration(Box::new(
+                            registration,
+                        )))
+                    }
                     GossipKind::LightClientFinalityUpdate => {
                         let light_client_finality_update = match fork_context
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
@@ -513,6 +526,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::ProposerPreferences(data) => data.as_ssz_bytes(),
             PubsubMessage::ExecutionProof(data) => data.as_ssz_bytes(),
             PubsubMessage::InclusionList(data) => data.as_ssz_bytes(),
+            PubsubMessage::RandaoCommitmentRegistration(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         }
@@ -681,6 +695,13 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                     f,
                     "Inclusion list: slot: {:?}, validator_index: {:?}",
                     data.message.slot, data.message.validator_index
+                )
+            }
+            PubsubMessage::RandaoCommitmentRegistration(data) => {
+                write!(
+                    f,
+                    "Randao commitment registration: validator_index: {:?}",
+                    data.message.validator_index
                 )
             }
             PubsubMessage::LightClientFinalityUpdate(_data) => {

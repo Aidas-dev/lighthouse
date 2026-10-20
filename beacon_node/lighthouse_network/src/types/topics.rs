@@ -34,6 +34,7 @@ pub const PAYLOAD_ATTESTATION: &str = "payload_attestation_message";
 pub const PROPOSER_PREFERENCES: &str = "proposer_preferences";
 pub const EXECUTION_PROOF: &str = "execution_proof";
 pub const INCLUSION_LIST: &str = "inclusion_list";
+pub const RANDAO_COMMITMENT_REGISTRATION: &str = "randao_commitment_registration";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
@@ -102,6 +103,7 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
 
     if fork_name.heze_enabled() {
         topics.push(GossipKind::InclusionList);
+        topics.push(GossipKind::RandaoCommitmentRegistration);
     }
 
     topics
@@ -132,6 +134,7 @@ pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool
         | GossipKind::ProposerPreferences
         | GossipKind::ExecutionProof
         | GossipKind::InclusionList
+        | GossipKind::RandaoCommitmentRegistration
         | GossipKind::LightClientFinalityUpdate
         | GossipKind::LightClientOptimisticUpdate => false,
     }
@@ -200,6 +203,8 @@ pub enum GossipKind {
     ExecutionProof,
     /// Topic for signed inclusion lists.
     InclusionList,
+    /// Topic for EIP-8321 hash-chain RANDAO commitment registrations.
+    RandaoCommitmentRegistration,
     /// Topic for publishing finality updates for light clients.
     LightClientFinalityUpdate,
     /// Topic for publishing optimistic updates for light clients.
@@ -364,6 +369,7 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::ProposerPreferences => PROPOSER_PREFERENCES.into(),
             GossipKind::ExecutionProof => EXECUTION_PROOF.into(),
             GossipKind::InclusionList => INCLUSION_LIST.into(),
+            GossipKind::RandaoCommitmentRegistration => RANDAO_COMMITMENT_REGISTRATION.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
         };
