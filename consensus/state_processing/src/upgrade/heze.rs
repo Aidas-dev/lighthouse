@@ -109,8 +109,12 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         latest_block_hash: pre.latest_block_hash,
         payload_expected_withdrawals: mem::take(&mut pre.payload_expected_withdrawals),
         ptc_window: pre.ptc_window.clone(),
-        // EIP-8321: all validators start unregistered, so both lists begin empty.
-        randao_commitments: ProgressiveList::empty(),
+        // EIP-8321: all existing validators start unregistered, preserving the invariant that
+        // `randao_commitments` has exactly one entry per validator.
+        randao_commitments: ProgressiveList::try_from_iter(std::iter::repeat_n(
+            types::consts::heze::UNSET_RANDAO_COMMITMENT,
+            pre.validators.len(),
+        ))?,
         pending_randao_commitments: ProgressiveList::empty(),
         // Caches
         total_active_balance: pre.total_active_balance,
