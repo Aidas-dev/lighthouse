@@ -408,6 +408,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
+        // EIP-8321: a validator with a registered commitment must reveal a hash-chain preimage
+        // instead of a BLS signature. That preimage is supplied by the validator client, so refuse
+        // to build an invalid block rather than silently falling back to the legacy reveal.
+        if let Ok(commitments) = state.randao_commitments() {
+            let commitment = commitments
+                .get(proposer_index as usize)
+                .copied()
+                .unwrap_or(types::consts::heze::UNSET_RANDAO_COMMITMENT);
+            if commitment != types::consts::heze::UNSET_RANDAO_COMMITMENT {
+                return Err(BlockProductionError::HashChainRandaoUnsupported);
+            }
+        }
+
         let slashings_and_exits_span = debug_span!("get_slashings_and_exits").entered();
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
             self.op_pool.get_slashings_and_exits(&state, &self.spec);

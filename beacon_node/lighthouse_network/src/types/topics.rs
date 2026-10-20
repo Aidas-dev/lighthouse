@@ -103,7 +103,9 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
 
     if fork_name.heze_enabled() {
         topics.push(GossipKind::InclusionList);
-        topics.push(GossipKind::RandaoCommitmentRegistration);
+        // TODO(EIP-8321): subscribe to `RandaoCommitmentRegistration` once gossip validation and
+        // beacon-processor routing are implemented. Advertising the topic while dropping messages
+        // would silently black-hole registrations.
     }
 
     topics
