@@ -12,7 +12,7 @@ use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::consts::gloas::PAYLOAD_BUILDER_VERSION;
-use types::consts::heze::{COMMITMENT_REGISTRATION_DELAY, UNSET_RANDAO_COMMITMENT};
+use types::consts::heze::UNSET_RANDAO_COMMITMENT;
 use types::is_builder_withdrawal_credential;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
@@ -166,7 +166,7 @@ pub fn process_randao_commitment_registration<E: EthSpec>(
 
     let activation_epoch = state
         .current_epoch()
-        .safe_add(COMMITMENT_REGISTRATION_DELAY)?;
+        .safe_add(E::commitment_registration_delay())?;
     state
         .pending_randao_commitments_mut()?
         .push(PendingRandaoCommitment {

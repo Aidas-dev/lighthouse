@@ -470,6 +470,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_RANDAO_COMMITMENT_REGISTRATIONS` constant for this specification.
     fn max_randao_commitment_registrations() -> usize;
 
+    /// Returns the `COMMITMENT_REGISTRATION_DELAY` constant for this specification.
+    fn commitment_registration_delay() -> u64;
+
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn payload_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
@@ -594,6 +597,10 @@ impl EthSpec for MainnetEthSpec {
     fn max_randao_commitment_registrations() -> usize {
         128
     }
+
+    fn commitment_registration_delay() -> u64 {
+        3
+    }
 }
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
@@ -699,6 +706,10 @@ impl EthSpec for MinimalEthSpec {
     fn max_randao_commitment_registrations() -> usize {
         128
     }
+
+    fn commitment_registration_delay() -> u64 {
+        3
+    }
 }
 
 /// Gnosis Beacon Chain specifications.
@@ -800,6 +811,10 @@ impl EthSpec for GnosisEthSpec {
 
     fn max_randao_commitment_registrations() -> usize {
         128
+    }
+
+    fn commitment_registration_delay() -> u64 {
+        3
     }
 }
 
