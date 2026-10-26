@@ -72,6 +72,10 @@ struct SetupBlock {
     failed: bool,
     #[serde(default)]
     payload_status: Option<PayloadStatus>,
+    /// Signed execution payload envelope supplied alongside the block (Gloas+ networking vectors).
+    #[serde(default)]
+    #[allow(dead_code)]
+    payload: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
