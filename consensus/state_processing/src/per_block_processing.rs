@@ -384,6 +384,23 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     Ok(())
 }
 
+/// Compute an EIP8321hash-chain commitment from a reveal:
+/// `blake3(HASH_CHAIN_RANDAO_DST || reveal)`.
+pub fn hash_chain_commitment(reveal: Hash256) -> Hash256 {
+    let mut preimage = Vec::with_capacity(HASH_CHAIN_RANDAO_DST.len() + 32);
+    preimage.extend_from_slice(HASH_CHAIN_RANDAO_DST);
+    preimage.extend_from_slice(reveal.as_slice());
+    Hash256::from_slice(blake3::hash(&preimage).as_bytes())
+}
+
+/// Fold a hash-chain reveal into the RANDAO accumulator: `blake3(mix || reveal)`.
+pub fn hash_chain_mix(mix: Hash256, reveal: Hash256) -> Hash256 {
+    let mut preimage = [0u8; 64];
+    preimage[..32].copy_from_slice(mix.as_slice());
+    preimage[32..].copy_from_slice(reveal.as_slice());
+    Hash256::from_slice(blake3::hash(&preimage).as_bytes())
+}
+
 /// Returns `true` if the signature is serialized as `G2_POINT_AT_INFINITY` (`0xc0 || 0x00..`).
 fn is_g2_point_at_infinity(signature: &Signature) -> bool {
     let bytes = signature.serialize();
@@ -413,11 +430,8 @@ fn process_hash_chain_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     );
 
     // `blake3(HASH_CHAIN_RANDAO_DST + reveal) == commitment`
-    let mut preimage = Vec::with_capacity(HASH_CHAIN_RANDAO_DST.len().safe_add(32)?);
-    preimage.extend_from_slice(HASH_CHAIN_RANDAO_DST);
-    preimage.extend_from_slice(reveal.as_slice());
     block_verify!(
-        Hash256::from_slice(blake3::hash(&preimage).as_bytes()) == commitment,
+        hash_chain_commitment(reveal) == commitment,
         BlockProcessingError::RandaoSignatureInvalid
     );
 
@@ -425,10 +439,7 @@ fn process_hash_chain_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     // be used to cancel out entropy.
     let epoch = state.current_epoch();
     let mix = state.get_randao_mix(epoch)?;
-    let mut mix_preimage = [0u8; 64];
-    mix_preimage[..32].copy_from_slice(mix.as_slice());
-    mix_preimage[32..].copy_from_slice(reveal.as_slice());
-    let new_mix = Hash256::from_slice(blake3::hash(&mix_preimage).as_bytes());
+    let new_mix = hash_chain_mix(*mix, reveal);
 
     let i = epoch
         .as_usize()
@@ -997,4 +1008,51 @@ pub fn process_execution_payload_bid<E: EthSpec>(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod eip8321_hash_tests {
+    use super::*;
+
+    #[test]
+    fn commitment_is_blake3_over_dst_and_reveal() {
+        let reveal = Hash256::repeat_byte(0x11);
+        let commitment = hash_chain_commitment(reveal);
+
+        let mut preimage = Vec::new();
+        preimage.extend_from_slice(HASH_CHAIN_RANDAO_DST);
+        preimage.extend_from_slice(reveal.as_slice());
+        assert_eq!(
+            commitment,
+            Hash256::from_slice(blake3::hash(&preimage).as_bytes())
+        );
+
+        // Distinct reveals produce distinct commitments.
+        assert_ne!(
+            commitment,
+            hash_chain_commitment(Hash256::repeat_byte(0x22))
+        );
+    }
+
+    #[test]
+    fn mix_depends_on_both_inputs() {
+        let mix = Hash256::repeat_byte(0x01);
+        let reveal = Hash256::repeat_byte(0x02);
+
+        let mixed = hash_chain_mix(mix, reveal);
+        assert_ne!(mixed, hash_chain_mix(Hash256::repeat_byte(0x03), reveal));
+        assert_ne!(mixed, hash_chain_mix(mix, Hash256::repeat_byte(0x04)));
+        // The accumulator is a hash, not a XOR: mixing the same reveal twice changes the result.
+        assert_ne!(hash_chain_mix(mixed, reveal), mixed);
+    }
+
+    #[test]
+    fn infinity_check_rejects_empty_signature() {
+        assert!(!is_g2_point_at_infinity(&Signature::empty()));
+
+        let mut bytes = [0u8; 96];
+        bytes[0] = 0xc0;
+        let infinity = Signature::deserialize(&bytes).expect("valid infinity signature");
+        assert!(is_g2_point_at_infinity(&infinity));
+    }
 }

@@ -8240,6 +8240,7 @@ version = "8.3.0"
 dependencies = [
  "account_utils",
  "blake3",
+ "bls",
  "hex",
  "parking_lot",
  "rand 0.9.5",
