@@ -282,6 +282,7 @@ impl BuilderOnlyProposer {
                 GraffitiSettings::new(None, Some(GraffitiPolicy::PreserveUserGraffiti)),
                 ProduceBlockVerification::VerifyRandao,
                 BuilderConfig::empty(),
+                None,
             )
             .await
             .map(|(block, ..)| block)

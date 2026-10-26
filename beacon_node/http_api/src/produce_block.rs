@@ -110,6 +110,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
             graffiti_settings,
             randao_verification,
             builder_config,
+            query.hash_chain_reveal,
         )
         .await
         .map_err(|e| {

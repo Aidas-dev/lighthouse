@@ -1598,6 +1598,7 @@ where
                 graffiti_settings,
                 ProduceBlockVerification::VerifyRandao,
                 eth2::types::BuilderConfig::empty(),
+                None,
             )
             .await?;
 

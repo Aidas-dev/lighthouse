@@ -203,6 +203,7 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
                 GraffitiSettings::Unspecified,
                 ProduceBlockVerification::VerifyRandao,
                 eth2::types::BuilderConfig::empty(),
+                None,
             )
             .await
             .unwrap();
@@ -641,6 +642,7 @@ async fn prepare_payload_generic(
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
             eth2::types::BuilderConfig::empty(),
+            None,
         )
         .await
         .unwrap();
@@ -1107,6 +1109,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
             eth2::types::BuilderConfig::empty(),
+            None,
         )
         .await
         .unwrap();

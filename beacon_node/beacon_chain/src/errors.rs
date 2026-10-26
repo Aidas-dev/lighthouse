@@ -348,6 +348,9 @@ pub enum BlockProductionError {
     /// EIP-8321: the proposer has registered a hash-chain commitment, but the validator client
     /// did not supply a `hash_chain_reveal` for this block.
     HashChainRandaoUnsupported,
+    /// EIP-8321: the proposer has no registered hash-chain commitment, but a
+    /// `hash_chain_reveal` was supplied for this block.
+    HashChainRandaoUnexpected,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

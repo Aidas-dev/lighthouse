@@ -27,6 +27,7 @@ lighthouse_validator_store = { workspace = true }
 metrics = { workspace = true }
 monitoring_api = { workspace = true }
 parking_lot = { workspace = true }
+randao_chain = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }

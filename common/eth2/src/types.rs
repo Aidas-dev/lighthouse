@@ -898,6 +898,9 @@ pub struct ValidatorBlocksQuery {
     pub include_payload: Option<bool>,
     pub builder_boost_factor: Option<u64>,
     pub graffiti_policy: Option<GraffitiPolicy>,
+    /// EIP-8321: the hash-chain preimage for a validator with a registered
+    /// RANDAO commitment. Absent for validators using the legacy BLS reveal.
+    pub hash_chain_reveal: Option<Hash256>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]

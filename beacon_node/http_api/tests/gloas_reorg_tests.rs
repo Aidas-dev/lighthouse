@@ -805,6 +805,7 @@ pub async fn proposer_boost_re_org_test(
                 &eth2::types::BuilderConfig::empty(),
                 None,
                 ForkName::Gloas,
+                None,
             )
             .await
             .unwrap();

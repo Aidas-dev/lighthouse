@@ -858,6 +858,7 @@ pub async fn fork_choice_before_proposal() {
                 &eth2::types::BuilderConfig::empty(),
                 None,
                 ForkName::Gloas,
+                None,
             )
             .await
             .unwrap()

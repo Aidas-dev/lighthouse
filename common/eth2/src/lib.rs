@@ -2205,6 +2205,26 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/pool/randao_commitment_registrations`
+    ///
+    /// [New in Eip8321: EIP-8321]
+    pub async fn post_beacon_pool_randao_commitment_registrations(
+        &self,
+        registrations: &[SignedRandaoCommitmentRegistration],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("randao_commitment_registrations");
+
+        self.post(path, &registrations).await?;
+
+        Ok(())
+    }
+
     /// `GET beacon/proposer_preferences?slot,dependent_root`
     pub async fn get_beacon_proposer_preferences(
         &self,
@@ -3020,6 +3040,7 @@ impl BeaconNodeHttpClient {
         skip_randao_verification: SkipRandaoVerification,
         include_payload: bool,
         graffiti_policy: Option<GraffitiPolicy>,
+        hash_chain_reveal: Option<Hash256>,
     ) -> Result<Url, Error> {
         let mut path = self.eth_path(V4)?;
 
@@ -3040,6 +3061,12 @@ impl BeaconNodeHttpClient {
         if skip_randao_verification == SkipRandaoVerification::Yes {
             path.query_pairs_mut()
                 .append_pair("skip_randao_verification", "");
+        }
+
+        // EIP-8321: only validators with an active commitment send a reveal.
+        if let Some(hash_chain_reveal) = hash_chain_reveal {
+            path.query_pairs_mut()
+                .append_pair("hash_chain_reveal", &hash_chain_reveal.to_string());
         }
 
         path.query_pairs_mut()
@@ -3067,6 +3094,7 @@ impl BeaconNodeHttpClient {
         builder_config: &BuilderConfig,
         graffiti_policy: Option<GraffitiPolicy>,
         fork_name: ForkName,
+        hash_chain_reveal: Option<Hash256>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
         self.post_validator_blocks_v4_modular(
             slot,
@@ -3077,6 +3105,7 @@ impl BeaconNodeHttpClient {
             builder_config,
             graffiti_policy,
             fork_name,
+            hash_chain_reveal,
         )
         .await
     }
@@ -3100,6 +3129,7 @@ impl BeaconNodeHttpClient {
         builder_config: &BuilderConfig,
         graffiti_policy: Option<GraffitiPolicy>,
         fork_name: ForkName,
+        hash_chain_reveal: Option<Hash256>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
         let path = self
             .post_validator_blocks_v4_path(
@@ -3109,6 +3139,7 @@ impl BeaconNodeHttpClient {
                 skip_randao_verification,
                 include_payload,
                 graffiti_policy,
+                hash_chain_reveal,
             )
             .await?;
 
@@ -3162,6 +3193,7 @@ impl BeaconNodeHttpClient {
         builder_config: &BuilderConfig,
         graffiti_policy: Option<GraffitiPolicy>,
         fork_name: ForkName,
+        hash_chain_reveal: Option<Hash256>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
         self.post_validator_blocks_v4_modular_ssz::<E>(
             slot,
@@ -3172,6 +3204,7 @@ impl BeaconNodeHttpClient {
             builder_config,
             graffiti_policy,
             fork_name,
+            hash_chain_reveal,
         )
         .await
     }
@@ -3190,6 +3223,7 @@ impl BeaconNodeHttpClient {
         builder_config: &BuilderConfig,
         graffiti_policy: Option<GraffitiPolicy>,
         fork_name: ForkName,
+        hash_chain_reveal: Option<Hash256>,
     ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
         let path = self
             .post_validator_blocks_v4_path(
@@ -3199,6 +3233,7 @@ impl BeaconNodeHttpClient {
                 skip_randao_verification,
                 include_payload,
                 graffiti_policy,
+                hash_chain_reveal,
             )
             .await?;
 

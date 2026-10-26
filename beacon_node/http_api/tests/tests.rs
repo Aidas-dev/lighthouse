@@ -5355,6 +5355,7 @@ impl ApiTester {
                 &eth2::types::BuilderConfig::empty(),
                 None,
                 ForkName::Gloas,
+                None,
             )
             .await
             .unwrap();
@@ -5526,6 +5527,7 @@ impl ApiTester {
                 SkipRandaoVerification::No,
                 false,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -5573,6 +5575,7 @@ impl ApiTester {
                 SkipRandaoVerification::No,
                 false,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -5615,6 +5618,7 @@ impl ApiTester {
                 None,
                 SkipRandaoVerification::No,
                 false,
+                None,
                 None,
             )
             .await
@@ -5991,6 +5995,7 @@ impl ApiTester {
                     &eth2::types::BuilderConfig::empty(),
                     None,
                     ForkName::Gloas,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -6074,6 +6079,7 @@ impl ApiTester {
                     &eth2::types::BuilderConfig::empty(),
                     None,
                     ForkName::Gloas,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -6154,6 +6160,7 @@ impl ApiTester {
                         &eth2::types::BuilderConfig::empty(),
                         None,
                         ForkName::Gloas,
+                        None,
                     )
                     .await
                     .unwrap()
@@ -6167,6 +6174,7 @@ impl ApiTester {
                         &eth2::types::BuilderConfig::empty(),
                         None,
                         ForkName::Gloas,
+                        None,
                     )
                     .await
                     .unwrap()
@@ -6716,6 +6724,7 @@ impl ApiTester {
                     &eth2::types::BuilderConfig::empty(),
                     None,
                     ForkName::Gloas,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -6807,6 +6816,7 @@ impl ApiTester {
                     &eth2::types::BuilderConfig::empty(),
                     None,
                     ForkName::Gloas,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -9796,6 +9806,7 @@ impl ApiTester {
                 &eth2::types::BuilderConfig::empty(),
                 None,
                 ForkName::Gloas,
+                None,
             )
             .await
             .unwrap();
@@ -10130,6 +10141,7 @@ impl ApiTester {
                 SkipRandaoVerification::Yes,
                 false,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -10144,6 +10156,7 @@ impl ApiTester {
                 SkipRandaoVerification::Yes,
                 false,
                 Some(GraffitiPolicy::AppendClientVersions),
+                None,
             )
             .await
             .unwrap();
@@ -10168,6 +10181,7 @@ impl ApiTester {
                 SkipRandaoVerification::Yes,
                 false,
                 Some(GraffitiPolicy::PreserveUserGraffiti),
+                None,
             )
             .await
             .unwrap();

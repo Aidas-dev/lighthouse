@@ -92,6 +92,9 @@ pub struct PartialBeaconBlock<E: EthSpec> {
     proposer_index: u64,
     parent_root: Hash256,
     randao_reveal: Signature,
+    /// EIP-8321: the hash-chain preimage for a proposer with a registered commitment,
+    /// `Hash256::ZERO` for validators using the legacy BLS reveal.
+    hash_chain_reveal: Hash256,
     eth1_data: Eth1Data,
     graffiti: Graffiti,
     proposer_slashings: Vec<ProposerSlashing>,
@@ -125,6 +128,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
         builder_config: BuilderConfig,
+        hash_chain_reveal: Option<Hash256>,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
@@ -163,6 +167,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             graffiti_settings,
             verification,
             builder_config,
+            hash_chain_reveal,
         )
         .await
     }
@@ -181,6 +186,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
         builder_config: BuilderConfig,
+        hash_chain_reveal: Option<Hash256>,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         debug!(
             slot = %produce_at_slot,
@@ -228,6 +234,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         graffiti,
                         &parent_execution_requests_ref,
                         should_build_on_full,
+                        hash_chain_reveal,
                     )
                 },
                 "produce_partial_beacon_block_gloas",
@@ -381,6 +388,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         graffiti: Graffiti,
         parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
         should_build_on_full: bool,
+        hash_chain_reveal: Option<Hash256>,
     ) -> Result<(PartialBeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError>
     {
         // It is invalid to try to produce a block using a state from a future slot.
@@ -409,18 +417,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
-        // EIP-8321: a validator with a registered commitment must reveal a hash-chain preimage
-        // instead of a BLS signature. That preimage is supplied by the validator client, so refuse
-        // to build an invalid block rather than silently falling back to the legacy reveal.
-        if let Ok(commitments) = state.randao_commitments() {
-            let commitment = commitments
-                .get(proposer_index as usize)
-                .copied()
-                .unwrap_or(types::consts::heze::UNSET_RANDAO_COMMITMENT);
+        // EIP-8321: a validator with a registered commitment reveals a hash-chain preimage
+        // instead of a BLS signature, and the legacy BLS reveal must be the G2 point at infinity.
+        // The preimage is supplied by the validator client, so refuse to build an invalid block
+        // rather than silently falling back to the legacy reveal. Validators without a commitment
+        // must keep the legacy BLS reveal and leave the hash-chain field empty.
+        let commitment = state
+            .randao_commitments()
+            .ok()
+            .and_then(|commitments| commitments.get(proposer_index as usize).copied())
+            .unwrap_or(types::consts::heze::UNSET_RANDAO_COMMITMENT);
+        let (randao_reveal, hash_chain_reveal) =
             if commitment != types::consts::heze::UNSET_RANDAO_COMMITMENT {
-                return Err(BlockProductionError::HashChainRandaoUnsupported);
-            }
-        }
+                let reveal =
+                    hash_chain_reveal.ok_or(BlockProductionError::HashChainRandaoUnsupported)?;
+                (
+                    Signature::infinity().map_err(BlockProductionError::BlsError)?,
+                    reveal,
+                )
+            } else {
+                if hash_chain_reveal.is_some() {
+                    return Err(BlockProductionError::HashChainRandaoUnexpected);
+                }
+                (randao_reveal, Hash256::ZERO)
+            };
 
         let slashings_and_exits_span = debug_span!("get_slashings_and_exits").entered();
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
@@ -675,6 +695,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 proposer_index,
                 parent_root,
                 randao_reveal,
+                hash_chain_reveal,
                 eth1_data,
                 graffiti,
                 proposer_slashings,
@@ -729,6 +750,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposer_index,
             parent_root,
             randao_reveal,
+            hash_chain_reveal,
             eth1_data,
             graffiti,
             proposer_slashings,
@@ -890,7 +912,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             payload_attestations,
                         )
                         .map_err(BlockProductionError::SszTypesError)?,
-                        hash_chain_reveal: Hash256::ZERO,
+                        hash_chain_reveal,
                         randao_commitment_registrations: ProgressiveVariableList::try_from_iter(
                             self.op_pool.get_randao_commitment_registrations(&state),
                         )

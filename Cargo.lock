@@ -8235,6 +8235,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "randao_chain"
+version = "8.3.0"
+dependencies = [
+ "account_utils",
+ "blake3",
+ "hex",
+ "parking_lot",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+ "types",
+]
+
+[[package]]
 name = "rapidhash"
 version = "4.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9278,6 +9295,7 @@ dependencies = [
  "serde_json",
  "task_executor",
  "tracing",
+ "tree_hash",
  "types",
  "url",
  "validator_metrics",
@@ -10706,6 +10724,7 @@ dependencies = [
  "metrics",
  "monitoring_api",
  "parking_lot",
+ "randao_chain",
  "reqwest 0.12.28",
  "sensitive_url",
  "serde",
@@ -10865,6 +10884,7 @@ dependencies = [
  "graffiti_file",
  "logging",
  "parking_lot",
+ "randao_chain",
  "reqwest 0.12.28",
  "safe_arith",
  "serde",

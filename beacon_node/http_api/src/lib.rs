@@ -227,6 +227,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
                 .or_else(|| starts_with("v1/beacon/pool/attester_slashings"))
                 .or_else(|| starts_with("v1/beacon/pool/bls_to_execution_changes"))
                 .or_else(|| starts_with("v1/beacon/pool/proposer_slashings"))
+                .or_else(|| starts_with("v1/beacon/pool/randao_commitment_registrations"))
                 .or_else(|| starts_with("v1/beacon/pool/sync_committees"))
                 .or_else(|| starts_with("v1/beacon/pool/voluntary_exits"))
                 .or_else(|| starts_with("v1/beacon/rewards/blocks"))
@@ -1605,6 +1606,10 @@ pub async fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/bls_to_execution_changes
     let post_beacon_pool_bls_to_execution_changes =
         post_beacon_pool_bls_to_execution_changes(&network_tx_filter, &beacon_pool_path);
+
+    // POST beacon/pool/randao_commitment_registrations
+    let post_beacon_pool_randao_commitment_registrations =
+        post_beacon_pool_randao_commitment_registrations(&network_tx_filter, &beacon_pool_path);
 
     // POST validator/proposer_preferences (JSON)
     let post_validator_proposer_preferences = post_validator_proposer_preferences(
@@ -3590,6 +3595,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_sync_committees)
                     .uor(post_beacon_pool_payload_attestations)
                     .uor(post_beacon_pool_bls_to_execution_changes)
+                    .uor(post_beacon_pool_randao_commitment_registrations)
                     .uor(post_validator_proposer_preferences)
                     .uor(post_beacon_execution_payload_envelopes)
                     .uor(post_beacon_execution_payload_bids)

@@ -22,12 +22,13 @@ use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{
     Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessage,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation,
-    SyncCommitteeMessage,
+    ProposerSlashing, SignedBlsToExecutionChange, SignedRandaoCommitmentRegistration,
+    SignedVoluntaryExit, SingleAttestation, SyncCommitteeMessage,
 };
 use warp::filters::BoxedFilter;
 use warp::{Filter, Reply};
@@ -136,6 +137,119 @@ pub fn post_beacon_pool_bls_to_execution_changes<T: BeaconChainTypes>(
             },
         )
         .boxed()
+}
+
+/// POST beacon/pool/randao_commitment_registrations
+///
+/// Accepts a JSON array of `SignedRandaoCommitmentRegistration`, or a single registration
+/// (a convenience for clients that submit one at a time).
+///
+/// [New in Eip8321: EIP-8321]
+pub fn post_beacon_pool_randao_commitment_registrations<T: BeaconChainTypes>(
+    network_tx_filter: &NetworkTxFilter<T>,
+    beacon_pool_path: &BeaconPoolPathFilter<T>,
+) -> ResponseFilter {
+    beacon_pool_path
+        .clone()
+        .and(warp::path("randao_commitment_registrations"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json::<serde_json::Value>())
+        .and(network_tx_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             body: serde_json::Value,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let registrations = parse_randao_commitment_registrations(body)?;
+
+                    let mut failures = vec![];
+
+                    for (index, registration) in registrations.into_iter().enumerate() {
+                        let validator_index = registration.message.validator_index;
+                        let commitment = registration.message.commitment;
+
+                        match chain.verify_randao_commitment_registration_for_gossip(
+                            &registration,
+                            Duration::from_secs(0),
+                        ) {
+                            Ok(()) => {
+                                let imported = chain
+                                    .op_pool
+                                    .insert_randao_commitment_registration(registration.clone());
+
+                                // Only gossip registrations that were new to the pool.
+                                if imported {
+                                    utils::publish_pubsub_message(
+                                        &network_tx,
+                                        PubsubMessage::RandaoCommitmentRegistration(Box::new(
+                                            registration,
+                                        )),
+                                    )?;
+                                } else {
+                                    debug!(
+                                        %validator_index,
+                                        "RANDAO commitment registration already known"
+                                    );
+                                }
+
+                                info!(
+                                    %validator_index,
+                                    %commitment,
+                                    published = imported,
+                                    "Processed RANDAO commitment registration"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    %validator_index,
+                                    reason = ?e,
+                                    source = "HTTP",
+                                    "Invalid RANDAO commitment registration"
+                                );
+                                failures.push(Failure::new(index, format!("invalid: {e:?}")));
+                            }
+                        }
+                    }
+
+                    if failures.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::indexed_bad_request(
+                            "some RANDAO commitment registrations failed to verify".into(),
+                            failures,
+                        ))
+                    }
+                })
+            },
+        )
+        .boxed()
+}
+
+/// Deserialize the pool endpoint body: a JSON array of registrations, or a single registration.
+fn parse_randao_commitment_registrations(
+    body: serde_json::Value,
+) -> Result<Vec<SignedRandaoCommitmentRegistration>, warp::Rejection> {
+    if let serde_json::Value::Array(items) = body {
+        return items
+            .into_iter()
+            .map(|item| {
+                serde_json::from_value(item).map_err(|e| {
+                    warp_utils::reject::custom_bad_request(format!(
+                        "invalid RANDAO commitment registration: {e:?}"
+                    ))
+                })
+            })
+            .collect();
+    }
+
+    serde_json::from_value(body)
+        .map(|registration| vec![registration])
+        .map_err(|e| {
+            warp_utils::reject::custom_bad_request(format!(
+                "invalid RANDAO commitment registration: {e:?}"
+            ))
+        })
 }
 
 /// GET beacon/pool/bls_to_execution_changes
