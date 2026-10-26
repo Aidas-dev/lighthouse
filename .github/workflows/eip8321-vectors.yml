@@ -1,0 +1,83 @@
+name: eip8321-vectors
+
+# Generates the EIP-8321 reference vectors from a pinned consensus-specs commit and runs the
+# RANDAO-focused Lighthouse EF suites against them. The feature vectors are not yet
+# published in consensus-spec-tests releases, so they must be generated.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - stable
+      - unstable
+      - 'pr/*'
+    paths:
+      - '.github/workflows/eip8321-vectors.yml'
+      - 'consensus/**'
+      - 'testing/ef_tests/**'
+
+env:
+  # Pinned consensus-specs revision used to generate the EIP8321vectors.
+  CONSENSUS_SPECS_REV: d9663f85be248c4fd0ae95806da6070e17c2442b
+  RUSTFLAGS: "-D warnings -C debuginfo=0"
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  eip8321-vectors:
+    name: eip8321-vectors (${{ matrix.preset }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - preset: mainnet
+            cargo_features: ef_tests
+          - preset: minimal
+            cargo_features: ef_tests,spec-minimal
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          cache-target: release
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Check out consensus-specs
+        uses: actions/checkout@v4
+        with:
+          repository: ethereum/consensus-specs
+          ref: ${{ env.CONSENSUS_SPECS_REV }}
+          path: consensus-specs
+
+      - name: Generate EIP-8321 vectors
+        working-directory: consensus-specs
+        run: |
+          make test fork=eip8321 preset=${{ matrix.preset }} reftests=true
+
+      - name: Install generated vectors
+        run: |
+          mkdir -p testing/ef_tests/consensus-spec-tests/tests/${{ matrix.preset }}
+          cp -r consensus-specs/reftests/${{ matrix.preset }}/eip8321 \
+            testing/ef_tests/consensus-spec-tests/tests/${{ matrix.preset }}/
+
+      - name: Run RANDAO-focused EF suites
+        run: |
+          cargo test -p ef_tests --release \
+            --features "${{ matrix.cargo_features }}" \
+            --test tests \
+            -- --test-threads=1 \
+            fork_upgrade operations_randao epoch_processing gossip_randao_commitment_registration
+
+      - name: Run sanity suites
+        # Requires more memory than the default runner provides for mainnet; minimal is enough
+        # here and mainnet sanity is covered by the nightly job.
+        if: matrix.preset == 'minimal'
+        run: |
+          cargo test -p ef_tests --release \
+            --features "${{ matrix.cargo_features }}" \
+            --test tests \
+            -- --test-threads=1 sanity
