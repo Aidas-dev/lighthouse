@@ -809,6 +809,14 @@ impl<E: EthSpec> GossipValidation<E> {
             "gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified",
             "gossip_beacon_block__reject_parent_failed_validation",
         ];
+        const IGNORED_RANDAO_REGISTRATION_CASES: &[&str] = &[
+            // The harness cannot construct a prior gossip event, so the "already seen" precondition
+            // is unreachable (the message is delivered exactly once).
+            "gossip_randao_commitment_registration__ignore_already_seen",
+            // Eip8321 is activated at genesis in the harness spec, so a pre-fork head state cannot
+            // be constructed through the production import path.
+            "gossip_randao_commitment_registration__ignore_pre_eip8321_head_state",
+        ];
         const UNSUPPORTED_TIMING_BOUNDARY_CASES: &[&str] = &[
             "accepts_at_slot_start",
             "accepts_first_slot_when_epoch_window_closes",
@@ -824,6 +832,9 @@ impl<E: EthSpec> GossipValidation<E> {
 
         match self.meta.topic {
             Topic::BeaconBlock => IGNORED_BEACON_BLOCK_CASES.contains(&case_name),
+            Topic::RandaoCommitmentRegistration => {
+                IGNORED_RANDAO_REGISTRATION_CASES.contains(&case_name)
+            }
             Topic::BeaconAttestation | Topic::BeaconAggregateAndProof => {
                 // These vectors require fixture history that the production-backed harness cannot
                 // construct: a retained consensus-invalid block, an unknown finalized root, or a
