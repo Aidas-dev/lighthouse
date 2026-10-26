@@ -1,0 +1,25 @@
+[package]
+name = "randao_chain"
+version = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = { workspace = true }
+
+[lib]
+name = "randao_chain"
+path = "src/lib.rs"
+
+[dependencies]
+account_utils = { workspace = true }
+blake3 = { workspace = true }
+bls = { workspace = true }
+hex = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+types = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

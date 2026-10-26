@@ -9,10 +9,11 @@ use std::sync::Arc;
 use types::{
     Address, Attestation, AttestationData, BlindedBeaconBlock, Epoch, EthSpec,
     ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    ProposerPreferences, RandaoCommitmentRegistration, SelectionProof, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedRandaoCommitmentRegistration, SignedValidatorRegistrationData,
+    SingleAttestation, Slot, SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof,
+    SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -128,6 +129,17 @@ pub trait ValidatorStore: Send + Sync {
         validator_pubkey: PublicKeyBytes,
         signing_epoch: Epoch,
     ) -> impl Future<Output = Result<Signature, Error<Self::Error>>> + Send;
+
+    /// Sign a hash-chain RANDAO commitment registration for `validator_pubkey`.
+    ///
+    /// The registration domain is fork-agnostic (`compute_domain` with the genesis fork version).
+    ///
+    /// [New in Eip8321: EIP-8321]
+    fn sign_randao_commitment_registration(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        registration: RandaoCommitmentRegistration,
+    ) -> impl Future<Output = Result<SignedRandaoCommitmentRegistration, Error<Self::Error>>> + Send;
 
     fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64);
 

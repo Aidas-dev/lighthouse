@@ -7,6 +7,7 @@ pub mod notifier_service;
 pub mod payload_attestation_service;
 pub mod preparation_service;
 pub mod proposer_preferences_service;
+pub mod randao_registration_service;
 pub mod request_auth_cache;
 pub mod sync;
 pub mod sync_committee_service;

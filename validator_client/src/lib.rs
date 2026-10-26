@@ -25,6 +25,7 @@ use eth2::{BeaconNodeHttpClient, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
 use lighthouse_validator_store::LighthouseValidatorStore;
 use parking_lot::RwLock;
+use randao_chain::RandaoChainStore;
 use reqwest::{Certificate, ClientBuilder, StatusCode};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
@@ -51,6 +52,7 @@ use validator_services::{
     payload_attestation_service::PayloadAttestationService,
     preparation_service::{PreparationService, PreparationServiceBuilder},
     proposer_preferences_service::ProposerPreferencesService,
+    randao_registration_service::{RandaoRegistrationService, RandaoRegistrationServiceBuilder},
     request_auth_cache::RequestAuthCache,
     sync_committee_service::SyncCommitteeService,
 };
@@ -96,6 +98,7 @@ pub struct ProductionValidatorClient<E: EthSpec> {
         ProposerPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
+    randao_registration_service: RandaoRegistrationService<ValidatorStore<E>, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore<E>>,
     configured_builders: BuilderStore,
     builder_preferences_service: BuilderPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
@@ -534,6 +537,10 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let configured_builders = BuilderStore::open_or_create(&config.validator_dir)
             .map_err(|e| format!("Unable to open or create builder definitions: {:?}", e))?;
+        let randao_chain = Arc::new(
+            RandaoChainStore::open_or_create(&config.validator_dir)
+                .map_err(|e| format!("Unable to open or create RANDAO hash chains: {:?}", e))?,
+        );
         let request_auth_cache = RequestAuthCache::default();
 
         let mut block_service_builder = BlockServiceBuilder::new()
@@ -547,7 +554,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .graffiti_policy(config.graffiti_policy)
             .configured_builders(configured_builders.clone())
             .request_auth_cache(request_auth_cache.clone())
-            .stateless_block_production(config.stateless_block_production);
+            .stateless_block_production(config.stateless_block_production)
+            .randao_chain(randao_chain.clone());
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {
@@ -616,6 +624,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
         );
 
+        let randao_registration_service = RandaoRegistrationServiceBuilder::new()
+            .validator_store(validator_store.clone())
+            .slot_clock(slot_clock.clone())
+            .beacon_nodes(beacon_nodes.clone())
+            .executor(context.executor.clone())
+            .spec(context.eth2_config.spec.clone())
+            .randao_chain(randao_chain)
+            .build()?;
+
         Ok(Self {
             context,
             duties_service,
@@ -626,6 +643,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             proposer_preferences_service,
             doppelganger_service,
             preparation_service,
+            randao_registration_service,
             validator_store,
             configured_builders: configured_builders.clone(),
             builder_preferences_service,
@@ -720,6 +738,18 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start preparation service: {}", e))?;
+
+        if self.context.eth2_config.spec.is_eip8321_scheduled() {
+            self.randao_registration_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| {
+                    format!(
+                        "Unable to start RANDAO commitment registration service: {}",
+                        e
+                    )
+                })?;
+        }
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(

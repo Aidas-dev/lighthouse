@@ -1,6 +1,7 @@
 use crate::request_auth_cache::RequestAuthCache;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::PublicKeyBytes;
+use bls::{Signature, SignatureBytes};
 use builder_store::BuilderStore;
 use builder_types::SignedRequestAuth;
 use eth2::BeaconNodeHttpClient;
@@ -10,6 +11,7 @@ use eth2::types::{
 };
 use graffiti_file::{GraffitiFile, determine_graffiti};
 use logging::crit;
+use randao_chain::RandaoChainStore;
 use reqwest::StatusCode;
 use slot_clock::SlotClock;
 use std::fmt::Debug;
@@ -98,6 +100,7 @@ pub struct BlockServiceBuilder<S, T> {
     configured_builders: Option<BuilderStore>,
     request_auth_cache: Option<RequestAuthCache>,
     stateless_block_production: bool,
+    randao_chain: Option<Arc<RandaoChainStore>>,
 }
 
 impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
@@ -115,6 +118,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
             configured_builders: None,
             request_auth_cache: None,
             stateless_block_production: false,
+            randao_chain: None,
         }
     }
 
@@ -178,6 +182,11 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
         self
     }
 
+    pub fn randao_chain(mut self, randao_chain: Arc<RandaoChainStore>) -> Self {
+        self.randao_chain = Some(randao_chain);
+        self
+    }
+
     pub fn build(self) -> Result<BlockService<S, T>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -207,6 +216,9 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
                     .request_auth_cache
                     .ok_or("Cannot build BlockService without request_auth_cache")?,
                 stateless_block_production: self.stateless_block_production,
+                randao_chain: self
+                    .randao_chain
+                    .ok_or("Cannot build BlockService without randao_chain")?,
             }),
         })
     }
@@ -281,6 +293,8 @@ pub struct Inner<S, T> {
     /// Produce Gloas blocks with `include_payload=true` and publish the self-built envelope from
     /// the response, rather than fetching it from the beacon node that built the block.
     stateless_block_production: bool,
+    /// Per-validator hash-chain RANDAO state (EIP-8321).
+    randao_chain: Arc<RandaoChainStore>,
 }
 
 /// The envelope, KZG proofs and blobs returned with a self-built block when `include_payload=true`.
@@ -527,6 +541,85 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
+    /// The hash-chain RANDAO reveal for `validator_pubkey`, if its registered commitment has
+    /// activated at `slot` and the chain still has unrevealed links.
+    ///
+    /// The reveal is *not* consumed here: the on-chain commitment only advances once the block is
+    /// included, so a proposal that fails to publish must reuse the same reveal. The caller
+    /// consumes it with [`Self::consume_hash_chain_reveal`] after a successful publish.
+    ///
+    /// [New in Eip8321: EIP-8321]
+    fn hash_chain_reveal(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        slot: Slot,
+        fork_name: ForkName,
+    ) -> Option<Hash256> {
+        if !fork_name.eip8321_enabled() {
+            return None;
+        }
+
+        let chain = match self.randao_chain.get(validator_pubkey) {
+            Ok(chain) => chain?,
+            Err(e) => {
+                error!(
+                    ?validator_pubkey,
+                    error = ?e,
+                    "Unable to read the RANDAO hash chain; proposing with the legacy BLS reveal"
+                );
+                return None;
+            }
+        };
+
+        let epoch = slot.epoch(S::E::slots_per_epoch());
+        if !chain.is_active(epoch) {
+            return None;
+        }
+
+        match chain.peek_reveal() {
+            Ok(Some(reveal)) => Some(reveal),
+            Ok(None) => {
+                warn!(
+                    ?validator_pubkey,
+                    epoch = epoch.as_u64(),
+                    "RANDAO hash chain is exhausted; the beacon node will reject a legacy reveal"
+                );
+                None
+            }
+            Err(e) => {
+                error!(
+                    ?validator_pubkey,
+                    error = ?e,
+                    "Unable to read the next RANDAO hash-chain reveal; proposing with the legacy \
+                     BLS reveal"
+                );
+                None
+            }
+        }
+    }
+
+    /// Consume a hash-chain reveal once the block carrying it has been published.
+    ///
+    /// [New in Eip8321: EIP-8321]
+    fn consume_hash_chain_reveal(&self, validator_pubkey: &PublicKeyBytes, reveal: Hash256) {
+        let result = self
+            .randao_chain
+            .get(validator_pubkey)
+            .and_then(|chain| match chain {
+                Some(chain) => chain.consume_reveal(reveal),
+                None => Ok(()),
+            });
+
+        if let Err(e) = result {
+            error!(
+                ?validator_pubkey,
+                error = ?e,
+                "Unable to advance the RANDAO hash chain after publishing a block; the next \
+                 proposal will reuse an already-revealed preimage"
+            );
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, fields(%slot, ?validator_pubkey))]
     async fn sign_and_publish_block(
@@ -622,28 +715,44 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             &[validator_metrics::BEACON_BLOCK],
         );
 
-        let randao_reveal = match self
-            .validator_store
-            .randao_reveal(validator_pubkey, slot.epoch(S::E::slots_per_epoch()))
-            .await
-        {
-            Ok(signature) => signature.into(),
-            Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
-                // A pubkey can be missing when a validator was recently removed
-                // via the API.
-                warn!(
-                    info = "a validator may have recently been removed from this VC",
-                    ?pubkey,
-                    ?slot,
-                    "Missing pubkey for block randao"
-                );
-                return Ok(());
-            }
-            Err(e) => {
-                return Err(BlockError::Recoverable(format!(
-                    "Unable to produce randao reveal signature: {:?}",
+        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
+
+        // EIP-8321: a validator with an activated hash-chain commitment reveals a
+        // preimage instead of a BLS signature, and its BLS reveal must be the G2 point at infinity.
+        let hash_chain_reveal = self.hash_chain_reveal(&validator_pubkey, slot, fork_name);
+
+        let randao_reveal: SignatureBytes = if hash_chain_reveal.is_some() {
+            let signature = Signature::infinity().map_err(|e| {
+                BlockError::Recoverable(format!(
+                    "Unable to construct the point-at-infinity randao reveal: {:?}",
                     e
-                )));
+                ))
+            })?;
+            signature.into()
+        } else {
+            match self
+                .validator_store
+                .randao_reveal(validator_pubkey, slot.epoch(S::E::slots_per_epoch()))
+                .await
+            {
+                Ok(signature) => signature.into(),
+                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                    // A pubkey can be missing when a validator was recently removed
+                    // via the API.
+                    warn!(
+                        info = "a validator may have recently been removed from this VC",
+                        ?pubkey,
+                        ?slot,
+                        "Missing pubkey for block randao"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    return Err(BlockError::Recoverable(format!(
+                        "Unable to produce randao reveal signature: {:?}",
+                        e
+                    )));
+                }
             }
         };
 
@@ -665,8 +774,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         info!(slot = slot.as_u64(), "Requesting unsigned block");
 
         // Check if Gloas fork is active at this slot
-        let fork_name = self_ref.chain_spec.fork_name_at_slot::<S::E>(slot);
-
         let (block_proposer, unsigned_block, builder_url, envelope_action) = if fork_name
             .gloas_enabled()
         {
@@ -719,6 +826,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                             builder_config_ref,
                             self_ref.graffiti_policy,
                             fork_name,
+                            hash_chain_reveal,
                         )
                         .await
                 })
@@ -750,6 +858,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                     builder_config_ref,
                                     self_ref.graffiti_policy,
                                     fork_name,
+                                    hash_chain_reveal,
                                 )
                                 .await
                                 .map_err(|e| {
@@ -881,6 +990,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         else {
             return Ok(());
         };
+
+        // The block is published, so the hash-chain commitment has advanced on-chain.
+        if let Some(reveal) = hash_chain_reveal {
+            self_ref.consume_hash_chain_reveal(&validator_pubkey, reveal);
+        }
 
         match envelope_action {
             EnvelopeAction::Skip => {}
@@ -1189,7 +1303,7 @@ mod tests {
     use beacon_node_fallback::{CandidateBeaconNode, Config as BeaconNodeConfig};
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{Blob, KzgProof, MainnetEthSpec};
+    use types::{Blob, Epoch, KzgProof, MainnetEthSpec};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
     use validator_test_rig::recording_validator_store::RecordingValidatorStore;
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
@@ -1265,6 +1379,9 @@ mod tests {
                 .configured_builders(
                     BuilderStore::open_or_create(harness._validator_dir.path()).unwrap(),
                 )
+                .randao_chain(Arc::new(
+                    RandaoChainStore::open_or_create(harness._validator_dir.path()).unwrap(),
+                ))
                 .stateless_block_production(stateless_block_production);
 
             if let Some(proposer_node) = proposer_node {
@@ -2188,5 +2305,77 @@ mod tests {
         // first_success tries 2 times, so each BN is hit twice
         mock_post_envelope_1.expect(2).assert();
         mock_post_envelope_2.expect(2).assert();
+    }
+
+    /// EIP-8321: a hash-chain reveal is only used once the registration has activated,
+    /// and every proposal consumes one link.
+    #[tokio::test]
+    async fn hash_chain_reveal_requires_activation() {
+        let test_harness = TestHarness::new_with_validators(1).await;
+        let validator_pubkey = test_harness.harness.pubkeys[0];
+        let validator_dir = test_harness.harness._validator_dir.path();
+
+        // Register the commitment from a store that is independent of the service's, so the
+        // service observes the activation when it loads the chain on first use.
+        let store = RandaoChainStore::open_or_create(validator_dir).unwrap();
+        let chain = store.get_or_create(&validator_pubkey).unwrap();
+        assert_eq!(chain.registered_epoch(), None);
+        chain.mark_registered(Epoch::new(0), Epoch::new(1)).unwrap();
+
+        // The fork decides whether a hash-chain reveal is acceptable at all.
+        let activation_slot = Slot::new(MainnetEthSpec::slots_per_epoch());
+        assert_eq!(
+            test_harness.service.hash_chain_reveal(
+                &validator_pubkey,
+                activation_slot,
+                ForkName::Gloas
+            ),
+            None
+        );
+
+        // The commitment activates one epoch after the submission epoch.
+        assert_eq!(
+            test_harness.service.hash_chain_reveal(
+                &validator_pubkey,
+                Slot::new(1),
+                ForkName::Eip8321
+            ),
+            None
+        );
+
+        // Once active, the proposal is given the preimage of the commitment. Retrying a failed
+        // proposal reuses the same reveal, so the chain is not burned by a publish failure.
+        let first = test_harness
+            .service
+            .hash_chain_reveal(&validator_pubkey, activation_slot, ForkName::Eip8321)
+            .expect("expected a hash-chain reveal");
+        assert_eq!(
+            test_harness.service.hash_chain_reveal(
+                &validator_pubkey,
+                activation_slot,
+                ForkName::Eip8321
+            ),
+            Some(first)
+        );
+
+        // Publishing the block advances the chain: the reveal becomes the commitment and the next
+        // proposal reveals its preimage.
+        test_harness
+            .service
+            .consume_hash_chain_reveal(&validator_pubkey, first);
+        let chain = test_harness
+            .service
+            .randao_chain
+            .get(&validator_pubkey)
+            .unwrap()
+            .expect("expected a hash chain");
+        assert_eq!(chain.commitment(), first);
+
+        let second = test_harness
+            .service
+            .hash_chain_reveal(&validator_pubkey, activation_slot, ForkName::Eip8321)
+            .expect("expected a second hash-chain reveal");
+        assert_ne!(first, second);
+        assert_eq!(randao_chain::next_link(&second), first);
     }
 }

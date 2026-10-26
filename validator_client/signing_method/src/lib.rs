@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{RayonPoolType, TaskExecutor};
 use tracing::instrument;
+use tree_hash::TreeHash;
 use types::*;
 use url::Url;
 use web3signer::{ForkInfo, MessageType, SigningRequest, SigningResponse};
@@ -33,6 +34,9 @@ pub enum Error {
     TokioJoin(String),
     MergeForkNotSupported,
     GenesisForkVersionRequired,
+    /// EIP-8321: remote signers have no message type for a hash-chain RANDAO
+    /// registration, so such validators cannot register a commitment.
+    RandaoCommitmentRegistrationUnsupported,
 }
 
 /// Enumerates all messages that can be signed by a validator.
@@ -54,6 +58,9 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     PayloadAttestationData(&'a PayloadAttestationData),
     ProposerPreferences(&'a ProposerPreferences),
     RequestAuth(&'a RequestAuth),
+    /// EIP-8321: a hash-chain RANDAO commitment registration. Its domain is
+    /// fork-agnostic, so the signing root is built here rather than via `SignedRoot`.
+    RandaoCommitmentRegistration(&'a RandaoCommitmentRegistration),
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
@@ -79,6 +86,11 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload
             SignableMessage::PayloadAttestationData(d) => d.signing_root(domain),
             SignableMessage::ProposerPreferences(p) => p.signing_root(domain),
             SignableMessage::RequestAuth(r) => r.signing_root(domain),
+            SignableMessage::RandaoCommitmentRegistration(r) => SigningData {
+                object_root: r.tree_hash_root(),
+                domain,
+            }
+            .tree_hash_root(),
         }
     }
 }
@@ -252,6 +264,9 @@ impl SigningMethod {
                         Web3SignerObject::proposer_preferences(p)
                     }
                     SignableMessage::RequestAuth(r) => Web3SignerObject::builder_request_auth(r),
+                    SignableMessage::RandaoCommitmentRegistration(_) => {
+                        return Err(Error::RandaoCommitmentRegistrationUnsupported);
+                    }
                 };
 
                 // Determine the Web3Signer message type.

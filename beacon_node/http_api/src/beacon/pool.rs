@@ -816,3 +816,44 @@ fn publish_payload_attestation_messages<T: BeaconChainTypes>(
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::Hash256;
+
+    fn registration() -> SignedRandaoCommitmentRegistration {
+        SignedRandaoCommitmentRegistration {
+            message: types::RandaoCommitmentRegistration {
+                validator_index: 7,
+                commitment: Hash256::repeat_byte(0xab),
+            },
+            signature: bls::Signature::empty(),
+        }
+    }
+
+    #[test]
+    fn parses_a_registration_array() {
+        let body = serde_json::to_value(vec![registration()]).unwrap();
+        let parsed = parse_randao_commitment_registrations(body).unwrap();
+        assert_eq!(parsed, vec![registration()]);
+    }
+
+    #[test]
+    fn parses_a_single_registration() {
+        let body = serde_json::to_value(registration()).unwrap();
+        let parsed = parse_randao_commitment_registrations(body).unwrap();
+        assert_eq!(parsed, vec![registration()]);
+    }
+
+    #[test]
+    fn rejects_malformed_registrations() {
+        // A registration without a commitment is not a registration.
+        let body = serde_json::json!([{ "message": { "validator_index": 7 } }]);
+        assert!(parse_randao_commitment_registrations(body).is_err());
+
+        // Arrays are homogeneous: one bad entry rejects the whole body.
+        let body = serde_json::json!([registration(), { "nope": true }]);
+        assert!(parse_randao_commitment_registrations(body).is_err());
+    }
+}

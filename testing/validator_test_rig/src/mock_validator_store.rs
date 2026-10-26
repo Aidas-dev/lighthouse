@@ -6,9 +6,10 @@ use std::future::Future;
 use std::sync::Arc;
 use types::{
     Address, Epoch, ExecutionPayloadEnvelope, Graffiti, Hash256, MainnetEthSpec,
-    PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences, SelectionProof,
-    SignedAggregateAndProof, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedValidatorRegistrationData, SingleAttestation, Slot,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences,
+    RandaoCommitmentRegistration, SelectionProof, SignedAggregateAndProof,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedRandaoCommitmentRegistration, SignedValidatorRegistrationData, SingleAttestation, Slot,
     SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_store::{
@@ -95,6 +96,14 @@ impl ValidatorStore for MockValidatorStore {
         _signing_epoch: Epoch,
     ) -> Result<Signature, StoreError<Self::Error>> {
         panic!("MockValidatorStore::randao_reveal called without a hook")
+    }
+
+    async fn sign_randao_commitment_registration(
+        &self,
+        _validator_pubkey: PublicKeyBytes,
+        _registration: RandaoCommitmentRegistration,
+    ) -> Result<SignedRandaoCommitmentRegistration, StoreError<Self::Error>> {
+        panic!("MockValidatorStore::sign_randao_commitment_registration called without a hook")
     }
 
     fn set_validator_index(&self, _validator_pubkey: &PublicKeyBytes, _index: u64) {
