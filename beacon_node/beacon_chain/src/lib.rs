@@ -114,6 +114,7 @@ pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, BlockProcessingError,
     DepositValidationError, ExitInvalid, ExitValidationError, ProposerSlashingValidationError,
+    RandaoCommitmentRegistrationInvalidReason,
 };
 pub use store;
 pub use types;

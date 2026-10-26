@@ -4,7 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use beacon_chain::BlockProcessingError;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
@@ -35,6 +34,7 @@ use beacon_chain::{
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
 };
+use beacon_chain::{BlockProcessingError, RandaoCommitmentRegistrationInvalidReason};
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{
     Client, GossipTopic, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage,
@@ -4462,7 +4462,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match result {
             Ok(()) => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                let inserted = self
+                    .chain
+                    .op_pool
+                    .insert_randao_commitment_registration(*registration);
+                let acceptance = if inserted {
+                    MessageAcceptance::Accept
+                } else {
+                    MessageAcceptance::Ignore
+                };
+                self.propagate_validation_result(message_id, peer_id, acceptance);
+            }
+            Err(BlockProcessingError::RandaoCommitmentRegistrationInvalid { reason, .. })
+                if matches!(
+                    reason,
+                    RandaoCommitmentRegistrationInvalidReason::CommitmentAlreadySet
+                        | RandaoCommitmentRegistrationInvalidReason::CommitmentAlreadyPending
+                ) =>
+            {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             Err(BlockProcessingError::RandaoCommitmentRegistrationInvalid { .. }) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
