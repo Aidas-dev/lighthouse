@@ -304,7 +304,9 @@ impl From<BeaconStateHash> for Hash256 {
 ///
 /// https://github.com/sigp/milhouse/issues/43
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
+    variants(
+        Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321
+    ),
     variant_attributes(
         derive(
             Educe,
@@ -466,6 +468,33 @@ impl From<BeaconStateHash> for Hash256 {
                 struct_behaviour = "progressive_container",
                 active_fields(
                     1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+                )
+            )
+        ),
+        Eip8321(
+            metastruct(
+                mappings(
+                    map_beacon_state_eip8321_fields(),
+                    map_beacon_state_eip8321_tree_list_fields(
+                        mutable,
+                        fallible,
+                        groups(tree_lists)
+                    ),
+                    map_beacon_state_eip8321_tree_list_fields_immutable(groups(tree_lists)),
+                ),
+                bimappings(bimap_beacon_state_eip8321_tree_list_fields(
+                    other_type = "BeaconStateEip8321",
+                    self_mutable,
+                    fallible,
+                    groups(tree_lists)
+                )),
+                num_fields(all()),
+            ),
+            tree_hash(
+                struct_behaviour = "progressive_container",
+                active_fields(
+                    1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                     1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
                 )
             )
@@ -548,7 +577,10 @@ where
     pub validators: Validators<E>,
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze), partial_getter(rename = "validators_progressive"))]
+    #[superstruct(
+        only(Gloas, Heze, Eip8321),
+        partial_getter(rename = "validators_progressive")
+    )]
     pub validators: ValidatorsGloas,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
@@ -561,7 +593,10 @@ where
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze), partial_getter(rename = "balances_progressive"))]
+    #[superstruct(
+        only(Gloas, Heze, Eip8321),
+        partial_getter(rename = "balances_progressive")
+    )]
     pub balances: BalancesGloas,
 
     // Randomness
@@ -591,7 +626,7 @@ where
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[compare_fields(as_iter)]
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "previous_epoch_participation_progressive")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -603,7 +638,7 @@ where
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "current_epoch_participation_progressive")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -633,17 +668,17 @@ where
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "inactivity_scores_progressive")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub inactivity_scores: ProgressiveList<u64>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
@@ -679,19 +714,25 @@ where
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_block_hash: ExecutionBlockHash,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
+    #[superstruct(
+        only(Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321),
+        partial_getter(copy)
+    )]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
+    #[superstruct(
+        only(Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321),
+        partial_getter(copy)
+    )]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas, Heze))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
@@ -700,22 +741,22 @@ where
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_requests_start_index: u64,
-    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze, Eip8321), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze, Eip8321), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze, Eip8321), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze, Eip8321), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu, Gloas, Heze), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze, Eip8321), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_consolidation_epoch: Epoch,
     #[compare_fields(as_iter)]
@@ -725,7 +766,7 @@ where
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "pending_deposits_progressive")
     )]
     pub pending_deposits: ProgressiveList<PendingDeposit>,
@@ -740,7 +781,7 @@ where
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "pending_partial_withdrawals_progressive")
     )]
     pub pending_partial_withdrawals: ProgressiveList<PendingPartialWithdrawal>,
@@ -754,7 +795,7 @@ where
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "pending_consolidations_progressive")
     )]
     pub pending_consolidations: ProgressiveList<PendingConsolidation>,
@@ -762,33 +803,33 @@ where
     // Fulu
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Fulu, Gloas, Heze))]
+    #[superstruct(only(Fulu, Gloas, Heze, Eip8321))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
     // Gloas
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     pub builders: ProgressiveList<Builder>,
 
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
-    #[superstruct(only(Gloas, Heze), partial_getter(copy))]
+    #[superstruct(only(Gloas, Heze, Eip8321), partial_getter(copy))]
     pub next_withdrawal_builder_index: BuilderIndex,
 
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     #[metastruct(exclude_from(tree_lists))]
     pub execution_payload_availability: BitVector<E::SlotsPerHistoricalRoot>,
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     pub builder_pending_payments: Vector<BuilderPendingPayment, E::BuilderPendingPaymentsLimit>,
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     pub builder_pending_withdrawals: ProgressiveList<BuilderPendingWithdrawal>,
 
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -800,7 +841,7 @@ where
     pub latest_execution_payload_bid: ExecutionPayloadBidGloas<E>,
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(
-        only(Heze),
+        only(Heze, Eip8321),
         partial_getter(rename = "latest_execution_payload_bid_heze")
     )]
     #[metastruct(exclude_from(tree_lists))]
@@ -808,22 +849,22 @@ where
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     pub payload_expected_withdrawals: ProgressiveList<Withdrawal>,
 
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     pub ptc_window: Vector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
 
     // EIP-8321
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Heze))]
+    #[superstruct(only(Eip8321))]
     pub randao_commitments: ProgressiveList<Hash256>,
     #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Heze))]
+    #[superstruct(only(Eip8321))]
     pub pending_randao_commitments: ProgressiveList<PendingRandaoCommitment>,
 
     // Caching (not in the spec)
@@ -930,7 +971,7 @@ impl<E: EthSpec> BeaconState<E> {
         ValidatorsRef<'_, E>,
         ValidatorsMut<'_, E>,
         basic(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze)
+        progressive(Gloas, Heze, Eip8321)
     );
 
     impl_any_list_accessors!(
@@ -939,7 +980,7 @@ impl<E: EthSpec> BeaconState<E> {
         BalancesRef<'_, E>,
         BalancesMut<'_, E>,
         basic(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze)
+        progressive(Gloas, Heze, Eip8321)
     );
 
     impl_any_list_accessors!(
@@ -948,7 +989,7 @@ impl<E: EthSpec> BeaconState<E> {
         AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
         AnyListMut<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
         basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze),
+        progressive(Gloas, Heze, Eip8321),
         absent(Base)
     );
 
@@ -958,7 +999,7 @@ impl<E: EthSpec> BeaconState<E> {
         AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
         AnyListMut<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
         basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze),
+        progressive(Gloas, Heze, Eip8321),
         absent(Base)
     );
 
@@ -968,7 +1009,7 @@ impl<E: EthSpec> BeaconState<E> {
         AnyListRef<'_, u64, E::ValidatorRegistryLimit>,
         AnyListMut<'_, u64, E::ValidatorRegistryLimit>,
         basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze),
+        progressive(Gloas, Heze, Eip8321),
         absent(Base)
     );
 
@@ -978,7 +1019,7 @@ impl<E: EthSpec> BeaconState<E> {
         AnyListRef<'_, PendingDeposit, E::PendingDepositsLimit>,
         AnyListMut<'_, PendingDeposit, E::PendingDepositsLimit>,
         basic(Electra, Fulu),
-        progressive(Gloas, Heze),
+        progressive(Gloas, Heze, Eip8321),
         absent(Base, Altair, Bellatrix, Capella, Deneb)
     );
 
@@ -988,7 +1029,7 @@ impl<E: EthSpec> BeaconState<E> {
         AnyListRef<'_, PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
         AnyListMut<'_, PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
         basic(Electra, Fulu),
-        progressive(Gloas, Heze),
+        progressive(Gloas, Heze, Eip8321),
         absent(Base, Altair, Bellatrix, Capella, Deneb)
     );
 
@@ -998,7 +1039,7 @@ impl<E: EthSpec> BeaconState<E> {
         AnyListRef<'_, PendingConsolidation, E::PendingConsolidationsLimit>,
         AnyListMut<'_, PendingConsolidation, E::PendingConsolidationsLimit>,
         basic(Electra, Fulu),
-        progressive(Gloas, Heze),
+        progressive(Gloas, Heze, Eip8321),
         absent(Base, Altair, Bellatrix, Capella, Deneb)
     );
 
@@ -1096,6 +1137,7 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Fulu { .. } => ForkName::Fulu,
             BeaconState::Gloas { .. } => ForkName::Gloas,
             BeaconState::Heze { .. } => ForkName::Heze,
+            BeaconState::Eip8321 { .. } => ForkName::Eip8321,
         }
     }
 
@@ -1554,6 +1596,7 @@ impl<E: EthSpec> BeaconState<E> {
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             BeaconState::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+            BeaconState::Eip8321(_) => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -1582,6 +1625,7 @@ impl<E: EthSpec> BeaconState<E> {
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             BeaconState::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+            BeaconState::Eip8321(_) => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -1603,6 +1647,9 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Heze(state) => Ok(ExecutionPayloadBidRef::Heze(
                 &state.latest_execution_payload_bid,
             )),
+            BeaconState::Eip8321(state) => Ok(ExecutionPayloadBidRef::Heze(
+                &state.latest_execution_payload_bid,
+            )),
         }
     }
 
@@ -1621,6 +1668,9 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.latest_execution_payload_bid,
             )),
             BeaconState::Heze(state) => Ok(ExecutionPayloadBidRefMut::Heze(
+                &mut state.latest_execution_payload_bid,
+            )),
+            BeaconState::Eip8321(state) => Ok(ExecutionPayloadBidRefMut::Heze(
                 &mut state.latest_execution_payload_bid,
             )),
         }
@@ -2153,6 +2203,7 @@ impl<E: EthSpec> BeaconState<E> {
             Self::Fulu(state) => validators_and_balances!(state, Basic),
             Self::Gloas(state) => validators_and_balances!(state, Progressive),
             Self::Heze(state) => validators_and_balances!(state, Progressive),
+            Self::Eip8321(state) => validators_and_balances!(state, Progressive),
         }
     }
 
@@ -2197,6 +2248,7 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Fulu(state) => mutable_validator_fields!(state, Basic),
             BeaconState::Gloas(state) => mutable_validator_fields!(state, Progressive),
             BeaconState::Heze(state) => mutable_validator_fields!(state, Progressive),
+            BeaconState::Eip8321(state) => mutable_validator_fields!(state, Progressive),
         }
     }
 
@@ -2225,6 +2277,7 @@ impl<E: EthSpec> BeaconState<E> {
             Self::Fulu(state) => state.validators = List::try_from_iter(iter)?,
             Self::Gloas(state) => state.validators = ProgressiveList::try_from_iter(iter)?,
             Self::Heze(state) => state.validators = ProgressiveList::try_from_iter(iter)?,
+            Self::Eip8321(state) => state.validators = ProgressiveList::try_from_iter(iter)?,
         }
         Ok(())
     }
@@ -2254,6 +2307,7 @@ impl<E: EthSpec> BeaconState<E> {
             Self::Fulu(state) => state.balances = List::try_from_iter(iter)?,
             Self::Gloas(state) => state.balances = ProgressiveList::try_from_iter(iter)?,
             Self::Heze(state) => state.balances = ProgressiveList::try_from_iter(iter)?,
+            Self::Eip8321(state) => state.balances = ProgressiveList::try_from_iter(iter)?,
         }
         Ok(())
     }
@@ -2282,6 +2336,9 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.inactivity_scores,
             ))),
             Self::Heze(state) => Ok(AnyList::Progressive(std::mem::take(
+                &mut state.inactivity_scores,
+            ))),
+            Self::Eip8321(state) => Ok(AnyList::Progressive(std::mem::take(
                 &mut state.inactivity_scores,
             ))),
         }
@@ -2325,6 +2382,13 @@ impl<E: EthSpec> BeaconState<E> {
                     std::iter::repeat_n(ParticipationFlags::default(), num_validators),
                 )?;
             }
+            Self::Eip8321(state) => {
+                state.previous_epoch_participation =
+                    std::mem::take(&mut state.current_epoch_participation);
+                state.current_epoch_participation = ProgressiveList::try_from_iter(
+                    std::iter::repeat_n(ParticipationFlags::default(), num_validators),
+                )?;
+            }
         }
         Ok(())
     }
@@ -2344,6 +2408,7 @@ impl<E: EthSpec> BeaconState<E> {
             Self::Fulu(state) => state.pending_deposits = List::try_from_iter(iter)?,
             Self::Gloas(state) => state.pending_deposits = ProgressiveList::try_from_iter(iter)?,
             Self::Heze(state) => state.pending_deposits = ProgressiveList::try_from_iter(iter)?,
+            Self::Eip8321(state) => state.pending_deposits = ProgressiveList::try_from_iter(iter)?,
         }
         Ok(())
     }
@@ -2363,6 +2428,7 @@ impl<E: EthSpec> BeaconState<E> {
             Self::Fulu(state) => state.inactivity_scores = List::try_from_iter(iter)?,
             Self::Gloas(state) => state.inactivity_scores = ProgressiveList::try_from_iter(iter)?,
             Self::Heze(state) => state.inactivity_scores = ProgressiveList::try_from_iter(iter)?,
+            Self::Eip8321(state) => state.inactivity_scores = ProgressiveList::try_from_iter(iter)?,
         }
         Ok(())
     }
@@ -2623,7 +2689,8 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Electra(_)
             | BeaconState::Fulu(_)
             | BeaconState::Gloas(_)
-            | BeaconState::Heze(_) => std::cmp::min(
+            | BeaconState::Heze(_)
+            | BeaconState::Eip8321(_) => std::cmp::min(
                 spec.max_per_epoch_activation_churn_limit,
                 self.get_validator_churn_limit(spec)?,
             ),
@@ -3074,6 +3141,14 @@ impl<E: EthSpec> BeaconState<E> {
                     any_pending_mutations |= self_field.has_pending_updates();
                 });
             }
+            Self::Eip8321(self_inner) => {
+                map_beacon_state_eip8321_tree_list_fields_immutable!(
+                    self_inner,
+                    |_, self_field| {
+                        any_pending_mutations |= self_field.has_pending_updates();
+                    }
+                );
+            }
         };
         any_pending_mutations
     }
@@ -3373,7 +3448,8 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Electra(_)
             | BeaconState::Fulu(_)
             | BeaconState::Gloas(_)
-            | BeaconState::Heze(_) => {
+            | BeaconState::Heze(_)
+            | BeaconState::Eip8321(_) => {
                 // Consume the balance and update state variables
                 *self.exit_balance_to_consume_mut()? =
                     exit_balance_to_consume.safe_sub(exit_balance)?;
@@ -3423,7 +3499,8 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Electra(_)
             | BeaconState::Fulu(_)
             | BeaconState::Gloas(_)
-            | BeaconState::Heze(_) => {
+            | BeaconState::Heze(_)
+            | BeaconState::Eip8321(_) => {
                 // Consume the balance and update state variables.
                 *self.consolidation_balance_to_consume_mut()? =
                     consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
@@ -3509,6 +3586,14 @@ impl<E: EthSpec> BeaconState<E> {
                 );
             }
             (Self::Heze(_), _) => (),
+            (Self::Eip8321(self_inner), Self::Eip8321(base_inner)) => {
+                bimap_beacon_state_eip8321_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Eip8321(_), _) => (),
         }
 
         // Use sync committees from `base` if they are equal.
@@ -3823,11 +3908,23 @@ impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
 
 /// The `active_fields` of the progressive-container `BeaconState` variants (EIP-7688).
 ///
-/// Must match the `active_fields` attribute on the Gloas and Heze variants.
+/// Must match the `active_fields` attribute on the Gloas, Heze and EIP8321 variants.
 pub const BEACON_STATE_ACTIVE_FIELDS: [bool; 46] = [true; 46];
 
-/// EIP-8321 `active_fields(width=48, gaps=(8, 9, 10, 28))` for the Heze state.
-pub const BEACON_STATE_ACTIVE_FIELDS_HEZE: [bool; 48] = [
+/// Heze `active_fields(width=46, gaps=(8, 9, 10, 28))` for the Heze state.
+///
+/// `eth1_data`, `eth1_data_votes`, `eth1_deposit_index` and `deposit_requests_start_index` were
+/// removed in Heze.
+pub const BEACON_STATE_ACTIVE_FIELDS_HEZE: [bool; 46] = [
+    true, true, true, true, true, true, true, true, false, false, false, true, true, true, true,
+    true, true, true, true, true, true, true, true, true, true, true, true, true, false, true,
+    true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+];
+
+/// EIP8321 `active_fields(width=48, gaps=(8, 9, 10, 28))` for the EIP8321 state.
+///
+/// This is the Heze layout plus `randao_commitments` and `pending_randao_commitments`.
+pub const BEACON_STATE_ACTIVE_FIELDS_EIP8321: [bool; 48] = [
     true, true, true, true, true, true, true, true, false, false, false, true, true, true, true,
     true, true, true, true, true, true, true, true, true, true, true, true, true, false, true,
     true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
@@ -3850,6 +3947,7 @@ impl<E: EthSpec> BeaconState<E> {
             ForkName::Fulu => BeaconStateFulu::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Gloas => BeaconStateGloas::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Heze => BeaconStateHeze::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Eip8321 => BeaconStateEip8321::<E>::NUM_FIELDS.next_power_of_two(),
         }
     }
 
@@ -3905,6 +4003,9 @@ impl<E: EthSpec> BeaconState<E> {
             }
             Self::Heze(inner) => {
                 map_beacon_state_heze_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Eip8321(inner) => {
+                map_beacon_state_eip8321_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
         }
         Ok(())
@@ -3976,7 +4077,9 @@ impl<E: EthSpec> BeaconState<E> {
 
         // [Modified in Gloas:EIP7688] the state is a progressive container.
         if self.fork_name_unchecked().gloas_enabled() {
-            let active_fields: &[bool] = if self.fork_name_unchecked().heze_enabled() {
+            let active_fields: &[bool] = if self.fork_name_unchecked().eip8321_enabled() {
+                &BEACON_STATE_ACTIVE_FIELDS_EIP8321
+            } else if self.fork_name_unchecked().heze_enabled() {
                 &BEACON_STATE_ACTIVE_FIELDS_HEZE
             } else {
                 &BEACON_STATE_ACTIVE_FIELDS
@@ -4042,6 +4145,11 @@ impl<E: EthSpec> BeaconState<E> {
                     leaves.push(field.tree_hash_root());
                 });
             }
+            BeaconState::Eip8321(state) => {
+                map_beacon_state_eip8321_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
         };
 
         leaves
@@ -4102,6 +4210,7 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
             (BeaconState::Fulu(x), BeaconState::Fulu(y)) => x.compare_fields(y),
             (BeaconState::Gloas(x), BeaconState::Gloas(y)) => x.compare_fields(y),
             (BeaconState::Heze(x), BeaconState::Heze(y)) => x.compare_fields(y),
+            (BeaconState::Eip8321(x), BeaconState::Eip8321(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }
@@ -4179,7 +4288,17 @@ mod progressive_container_tests {
                 .count(),
             BeaconStateHeze::<MainnetEthSpec>::NUM_FIELDS
         );
-        assert_eq!(BEACON_STATE_ACTIVE_FIELDS_HEZE.len(), 48);
+        assert_eq!(BEACON_STATE_ACTIVE_FIELDS_HEZE.len(), 46);
+        assert_eq!(BeaconStateHeze::<MainnetEthSpec>::NUM_FIELDS, 42);
+        assert_eq!(
+            BEACON_STATE_ACTIVE_FIELDS_EIP8321
+                .iter()
+                .filter(|active| **active)
+                .count(),
+            BeaconStateEip8321::<MainnetEthSpec>::NUM_FIELDS
+        );
+        assert_eq!(BEACON_STATE_ACTIVE_FIELDS_EIP8321.len(), 48);
+        assert_eq!(BeaconStateEip8321::<MainnetEthSpec>::NUM_FIELDS, 44);
     }
 }
 

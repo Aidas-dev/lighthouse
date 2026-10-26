@@ -105,7 +105,7 @@ impl FeatureName {
     /// `ForkName` to use when running the feature tests.
     pub fn fork_name(&self) -> ForkName {
         match self {
-            FeatureName::Eip8321 => ForkName::Heze,
+            FeatureName::Eip8321 => ForkName::Eip8321,
         }
     }
 }

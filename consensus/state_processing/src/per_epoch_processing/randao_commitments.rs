@@ -10,7 +10,7 @@ pub fn process_pending_randao_commitments<E: EthSpec>(
     state: &mut BeaconState<E>,
     _spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if !state.fork_name_unchecked().heze_enabled() {
+    if !state.fork_name_unchecked().eip8321_enabled() {
         return Ok(());
     }
 

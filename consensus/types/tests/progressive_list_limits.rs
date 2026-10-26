@@ -108,11 +108,12 @@ fn progressive_list_limits() {
 #[test]
 fn progressive_block_body_errors_propagate() {
     type E = Spec;
-    for fork in [ForkName::Gloas, ForkName::Heze] {
+    for fork in [ForkName::Gloas, ForkName::Heze, ForkName::Eip8321] {
         let spec = fork.make_genesis_spec(E::default_spec());
         let mut block = BeaconBlock::<E>::empty(&spec);
         let mut body = block.body_mut();
-        // `deposits` was removed from the block body in Heze (EIP-8321).
+        // `deposits` was removed from the block body in Heze (and stays removed in
+        // EIP8321).
         if fork == ForkName::Gloas {
             body.set_deposits_from_iter(vec![
                 test_arbitrary_instance();
@@ -154,6 +155,9 @@ fn progressive_block_body_errors_propagate() {
                 block.body().deposits().len(),
                 <E as EthSpec>::MaxDeposits::to_usize()
             );
+        } else {
+            // `deposits` is absent for both Heze and EIP8321.
+            assert!(block.body().deposits().is_empty());
         }
     }
 }

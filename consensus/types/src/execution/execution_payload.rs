@@ -281,7 +281,9 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
             ForkName::Electra => ExecutionPayloadElectra::from_ssz_bytes(bytes).map(Self::Electra),
             ForkName::Fulu => ExecutionPayloadFulu::from_ssz_bytes(bytes).map(Self::Fulu),
             ForkName::Gloas => ExecutionPayloadGloas::from_ssz_bytes(bytes).map(Self::Gloas),
-            ForkName::Heze => ExecutionPayloadHeze::from_ssz_bytes(bytes).map(Self::Heze),
+            ForkName::Heze | ForkName::Eip8321 => {
+                ExecutionPayloadHeze::from_ssz_bytes(bytes).map(Self::Heze)
+            }
         }
     }
 }
@@ -333,7 +335,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayload<E> 
             ForkName::Gloas => {
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Heze => {
+            ForkName::Heze | ForkName::Eip8321 => {
                 Self::Heze(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })

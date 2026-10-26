@@ -1319,7 +1319,8 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
             | ForkName::Electra
             | ForkName::Fulu
             | ForkName::Gloas
-            | ForkName::Heze => {
+            | ForkName::Heze
+            | ForkName::Eip8321 => {
                 Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })

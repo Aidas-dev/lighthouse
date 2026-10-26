@@ -5,8 +5,8 @@ use crate::GloasVerificationContext;
 use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
-    upgrade_to_gloas, upgrade_to_heze,
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
+    upgrade_to_eip8321, upgrade_to_fulu, upgrade_to_gloas, upgrade_to_heze,
 };
 use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
@@ -192,6 +192,17 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         state.fork_mut().previous_version = spec.heze_fork_version;
     }
 
+    // Upgrade to EIP8321 if configured from genesis.
+    if spec
+        .eip8321_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_eip8321(&mut state, spec)?;
+
+        // Remove intermediate Heze fork from `state.fork`.
+        state.fork_mut().previous_version = spec.eip8321_fork_version;
+    }
+
     // From Gloas onwards the genesis block body embeds `state.latest_execution_payload_bid`
     // (see `genesis_block`), so `latest_block_header.body_root` must be computed against the
     // final genesis fork, after every upgrade has run
@@ -237,6 +248,10 @@ pub fn genesis_block<E: EthSpec>(
         }
         BeaconBlock::Heze(heze_block) => {
             heze_block.body.signed_execution_payload_bid.message =
+                state.latest_execution_payload_bid_heze()?.clone();
+        }
+        BeaconBlock::Eip8321(eip8321_block) => {
+            eip8321_block.body.signed_execution_payload_bid.message =
                 state.latest_execution_payload_bid_heze()?.clone();
         }
     }

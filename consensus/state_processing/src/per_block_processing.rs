@@ -339,8 +339,8 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // EIP-8321: validators with a registered hash-chain commitment use the hash-chain reveal,
-    // everyone else keeps the legacy BLS reveal.
+    // EIP8321: validators with a registered hash-chain commitment use the hash-chain
+    // reveal, everyone else keeps the legacy BLS reveal.
     let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;
     let commitment = state
         .randao_commitments()

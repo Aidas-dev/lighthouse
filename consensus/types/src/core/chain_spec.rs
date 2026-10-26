@@ -289,6 +289,13 @@ pub struct ChainSpec {
     pub heze_fork_epoch: Option<Epoch>,
 
     /*
+     * EIP8321 hard fork params
+     */
+    pub eip8321_fork_version: [u8; 4],
+    /// The EIP8321 fork epoch is optional, with `None` representing "EIP8321 never happens".
+    pub eip8321_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -421,6 +428,7 @@ impl ChainSpec {
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
         let forks = [
+            (self.eip8321_fork_epoch, ForkName::Eip8321),
             (self.heze_fork_epoch, ForkName::Heze),
             (self.gloas_fork_epoch, ForkName::Gloas),
             (self.fulu_fork_epoch, ForkName::Fulu),
@@ -455,6 +463,7 @@ impl ChainSpec {
             ForkName::Fulu => self.fulu_fork_version,
             ForkName::Gloas => self.gloas_fork_version,
             ForkName::Heze => self.heze_fork_version,
+            ForkName::Eip8321 => self.eip8321_fork_version,
         }
     }
 
@@ -475,6 +484,7 @@ impl ChainSpec {
             ForkName::Fulu => self.fulu_fork_epoch,
             ForkName::Gloas => self.gloas_fork_epoch,
             ForkName::Heze => self.heze_fork_epoch,
+            ForkName::Eip8321 => self.eip8321_fork_epoch,
         }
     }
 
@@ -523,6 +533,12 @@ impl ChainSpec {
     pub fn is_heze_scheduled(&self) -> bool {
         self.heze_fork_epoch
             .is_some_and(|heze_fork_epoch| heze_fork_epoch != self.far_future_epoch)
+    }
+
+    /// Returns true if `EIP8321_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_eip8321_scheduled(&self) -> bool {
+        self.eip8321_fork_epoch
+            .is_some_and(|eip8321_fork_epoch| eip8321_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
@@ -1473,6 +1489,8 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x00],
             heze_fork_epoch: None,
+            eip8321_fork_version: [0x09, 0x00, 0x00, 0x00],
+            eip8321_fork_epoch: None,
             max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
             min_slots_for_inclusion_lists_requests: 1,
@@ -1633,6 +1651,9 @@ impl ChainSpec {
             // Heze
             heze_fork_version: [0x08, 0x00, 0x00, 0x01],
             heze_fork_epoch: None,
+            // EIP8321
+            eip8321_fork_version: [0x09, 0x00, 0x00, 0x01],
+            eip8321_fork_epoch: None,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1934,6 +1955,8 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x64],
             heze_fork_epoch: None,
+            eip8321_fork_version: [0x09, 0x00, 0x00, 0x64],
+            eip8321_fork_epoch: None,
             max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
             min_slots_for_inclusion_lists_requests: 1,
@@ -2258,6 +2281,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub heze_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_eip8321_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    eip8321_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub eip8321_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     seconds_per_slot: Option<MaybeQuoted<u64>>,
@@ -2511,6 +2542,11 @@ fn default_gloas_fork_version() -> [u8; 4] {
 }
 
 fn default_heze_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_eip8321_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -2956,6 +2992,11 @@ impl Config {
                 .heze_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            eip8321_fork_version: spec.eip8321_fork_version,
+            eip8321_fork_epoch: spec
+                .eip8321_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             seconds_per_slot: Some(MaybeQuoted {
                 value: spec.seconds_per_slot,
             }),
@@ -3089,6 +3130,8 @@ impl Config {
             gloas_fork_epoch,
             heze_fork_version,
             heze_fork_epoch,
+            eip8321_fork_version,
+            eip8321_fork_epoch,
             seconds_per_slot,
             slot_duration_ms,
             seconds_per_eth1_block,
@@ -3228,6 +3271,8 @@ impl Config {
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
             heze_fork_version,
             heze_fork_epoch: heze_fork_epoch.map(|q| q.value),
+            eip8321_fork_version,
+            eip8321_fork_epoch: eip8321_fork_epoch.map(|q| q.value),
             seconds_per_slot: seconds_per_slot
                 .map(|q| q.value)
                 .or_else(|| slot_duration_ms.and_then(|q| q.value.checked_div(1000)))?,

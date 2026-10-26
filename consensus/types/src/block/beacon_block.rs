@@ -18,9 +18,10 @@ use crate::{
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
     block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
-        BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
-        BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
-        BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
+        BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyEip8321,
+        BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconBlockBodyGloas, BeaconBlockBodyHeze,
+        BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockHeader, SignedBeaconBlock,
+        SignedBeaconBlockHeader,
     },
     core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
     deposit::{Deposit, DepositData},
@@ -37,7 +38,7 @@ use crate::{
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321),
     variant_attributes(
         derive(
             Debug,
@@ -106,6 +107,8 @@ pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload
     pub body: BeaconBlockBodyGloas<E, Payload>,
     #[superstruct(only(Heze), partial_getter(rename = "body_heze"))]
     pub body: BeaconBlockBodyHeze<E, Payload>,
+    #[superstruct(only(Eip8321), partial_getter(rename = "body_eip8321"))]
+    pub body: BeaconBlockBodyEip8321<E, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
@@ -160,8 +163,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
         // TODO(heze): decode Heze here once it diverges from Gloas. While the two variants are
         // SSZ-identical, trying Heze first would mis-tag every Gloas block as Heze.
-        BeaconBlockGloas::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Gloas)
+        BeaconBlockEip8321::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Eip8321)
+            .or_else(|_| BeaconBlockGloas::from_ssz_bytes(bytes).map(BeaconBlock::Gloas))
             .or_else(|_| BeaconBlockFulu::from_ssz_bytes(bytes).map(BeaconBlock::Fulu))
             .or_else(|_| BeaconBlockElectra::from_ssz_bytes(bytes).map(BeaconBlock::Electra))
             .or_else(|_| BeaconBlockDeneb::from_ssz_bytes(bytes).map(BeaconBlock::Deneb))
@@ -264,6 +268,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
             BeaconBlockRef::Fulu { .. } => ForkName::Fulu,
             BeaconBlockRef::Gloas { .. } => ForkName::Gloas,
             BeaconBlockRef::Heze { .. } => ForkName::Heze,
+            BeaconBlockRef::Eip8321 { .. } => ForkName::Eip8321,
         }
     }
 
@@ -330,6 +335,14 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
                     .as_ref(),
             ),
             BeaconBlockRef::Heze(block) => Some(
+                block
+                    .body
+                    .signed_execution_payload_bid
+                    .message
+                    .blob_kzg_commitments
+                    .as_ref(),
+            ),
+            BeaconBlockRef::Eip8321(block) => Some(
                 block
                     .body
                     .signed_execution_payload_bid
@@ -759,6 +772,32 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockHeze
                 parent_execution_requests: ExecutionRequestsGloas::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBidHeze::empty(),
                 payload_attestations: ProgressiveVariableList::empty(),
+                _phantom: PhantomData,
+            },
+        }
+    }
+}
+
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockEip8321<E, Payload> {
+    /// Returns an empty EIP8321 block to be used during genesis.
+    fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockEip8321 {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyEip8321 {
+                randao_reveal: Signature::empty(),
+                graffiti: Graffiti::default(),
+                proposer_slashings: ProgressiveVariableList::empty(),
+                attester_slashings: ProgressiveVariableList::empty(),
+                attestations: ProgressiveVariableList::empty(),
+                voluntary_exits: ProgressiveVariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                bls_to_execution_changes: ProgressiveVariableList::empty(),
+                parent_execution_requests: ExecutionRequestsGloas::default(),
+                signed_execution_payload_bid: SignedExecutionPayloadBidHeze::empty(),
+                payload_attestations: ProgressiveVariableList::empty(),
                 hash_chain_reveal: Hash256::ZERO,
                 randao_commitment_registrations: ProgressiveVariableList::empty(),
                 _phantom: PhantomData,
@@ -807,6 +846,29 @@ impl<E: EthSpec> From<BeaconBlockHeze<E, BlindedPayload<E>>>
         } = block;
 
         BeaconBlockHeze {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body: body.into(),
+        }
+    }
+}
+
+// TODO(eip8321) Look into whether we can remove this in the future since no blinded blocks post-gloas
+impl<E: EthSpec> From<BeaconBlockEip8321<E, BlindedPayload<E>>>
+    for BeaconBlockEip8321<E, FullPayload<E>>
+{
+    fn from(block: BeaconBlockEip8321<E, BlindedPayload<E>>) -> Self {
+        let BeaconBlockEip8321 {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body,
+        } = block;
+
+        BeaconBlockEip8321 {
             slot,
             proposer_index,
             parent_root,
@@ -900,6 +962,7 @@ impl_from!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |bod
 impl_from!(BeaconBlockFulu, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyFulu<_, _>| body.into());
 impl_from!(BeaconBlockGloas, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyGloas<_, _>| body.into());
 impl_from!(BeaconBlockHeze, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyHeze<_, _>| body.into());
+impl_from!(BeaconBlockEip8321, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyEip8321<_, _>| body.into());
 
 // We can clone blocks with payloads to blocks without payloads, without cloning the payload.
 macro_rules! impl_clone_as_blinded {
@@ -936,6 +999,7 @@ impl_clone_as_blinded!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPaylo
 impl_clone_as_blinded!(BeaconBlockFulu, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockGloas, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockHeze, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockEip8321, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 
 // A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
 // execution payload.

@@ -62,8 +62,17 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 /// Must match the `active_fields` attribute on the struct.
 pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS: [bool; 13] = [true; 13];
 
-/// EIP-8321 `active_fields(width=15, gaps=(1, 6))` for the Heze `BeaconBlockBody`.
-pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE: [bool; 15] = [
+/// Heze `active_fields(width=13, gaps=(1, 6))` for the Heze `BeaconBlockBody`.
+///
+/// `eth1_data` and `deposits` were removed from the body in Heze.
+pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE: [bool; 13] = [
+    true, false, true, true, true, true, false, true, true, true, true, true, true,
+];
+
+/// EIP8321 `active_fields(width=15, gaps=(1, 6))` for the EIP8321 `BeaconBlockBody`.
+///
+/// This is the Heze layout plus `hash_chain_reveal` and `randao_commitment_registrations`.
+pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS_EIP8321: [bool; 15] = [
     true, false, true, true, true, true, false, true, true, true, true, true, true, true, true,
 ];
 
@@ -71,7 +80,7 @@ pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE: [bool; 15] = [
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321),
     variant_attributes(
         derive(
             Debug,
@@ -114,6 +123,13 @@ pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE: [bool; 15] = [
             metastruct(mappings(beacon_block_body_heze_fields(groups(fields)))),
             tree_hash(
                 struct_behaviour = "progressive_container",
+                active_fields(1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1)
+            )
+        ),
+        Eip8321(
+            metastruct(mappings(beacon_block_body_eip8321_fields(groups(fields)))),
+            tree_hash(
+                struct_behaviour = "progressive_container",
                 active_fields(1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1)
             )
         ),
@@ -148,7 +164,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     )]
     pub proposer_slashings: VariableList<ProposerSlashing, E::MaxProposerSlashings>,
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "proposer_slashings_progressive")
     )]
     pub proposer_slashings: ProgressiveVariableList<ProposerSlashing, E::MaxProposerSlashings>,
@@ -163,7 +179,10 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     )]
     pub attester_slashings:
         VariableList<AttesterSlashingElectra<E>, E::MaxAttesterSlashingsElectra>,
-    #[superstruct(only(Gloas, Heze), partial_getter(rename = "attester_slashings_gloas"))]
+    #[superstruct(
+        only(Gloas, Heze, Eip8321),
+        partial_getter(rename = "attester_slashings_gloas")
+    )]
     pub attester_slashings:
         ProgressiveVariableList<AttesterSlashingGloas<E>, E::MaxAttesterSlashingsElectra>,
     #[superstruct(
@@ -173,7 +192,10 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub attestations: VariableList<AttestationBase<E>, E::MaxAttestations>,
     #[superstruct(only(Electra, Fulu), partial_getter(rename = "attestations_electra"))]
     pub attestations: VariableList<AttestationElectra<E>, E::MaxAttestationsElectra>,
-    #[superstruct(only(Gloas, Heze), partial_getter(rename = "attestations_gloas"))]
+    #[superstruct(
+        only(Gloas, Heze, Eip8321),
+        partial_getter(rename = "attestations_gloas")
+    )]
     pub attestations: ProgressiveVariableList<AttestationGloas<E>, E::MaxAttestationsElectra>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
@@ -188,11 +210,11 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     )]
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "voluntary_exits_progressive")
     )]
     pub voluntary_exits: ProgressiveVariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze, Eip8321))]
     pub sync_aggregate: SyncAggregate<E>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
@@ -222,7 +244,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(
-        only(Gloas, Heze),
+        only(Gloas, Heze, Eip8321),
         partial_getter(rename = "bls_to_execution_changes_progressive")
     )]
     pub bls_to_execution_changes:
@@ -237,23 +259,23 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     )]
     pub signed_execution_payload_bid: SignedExecutionPayloadBidGloas<E>,
     #[superstruct(
-        only(Heze),
+        only(Heze, Eip8321),
         partial_getter(rename = "signed_execution_payload_bid_heze")
     )]
     pub signed_execution_payload_bid: SignedExecutionPayloadBidHeze<E>,
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     pub payload_attestations:
         ProgressiveVariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Heze, Eip8321))]
     pub parent_execution_requests: ExecutionRequestsGloas<E>,
-    #[superstruct(only(Heze))]
+    #[superstruct(only(Eip8321))]
     pub hash_chain_reveal: Hash256,
-    #[superstruct(only(Heze))]
+    #[superstruct(only(Eip8321))]
     pub randao_commitment_registrations: ProgressiveVariableList<
         SignedRandaoCommitmentRegistration,
         E::MaxRandaoCommitmentRegistrations,
     >,
-    #[superstruct(only(Base, Altair, Gloas, Heze))]
+    #[superstruct(only(Base, Altair, Gloas, Heze, Eip8321))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -311,6 +333,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Fulu(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             Self::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+            Self::Eip8321(_) => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -329,6 +352,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                 &body.signed_execution_payload_bid,
             )),
             Self::Heze(body) => Ok(SignedExecutionPayloadBidRef::Heze(
+                &body.signed_execution_payload_bid,
+            )),
+            Self::Eip8321(body) => Ok(SignedExecutionPayloadBidRef::Heze(
                 &body.signed_execution_payload_bid,
             )),
         }
@@ -373,6 +399,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                 beacon_block_body_heze_fields!(body, |_, field| leaves
                     .push(field.tree_hash_root()));
             }
+            Self::Eip8321(body) => {
+                beacon_block_body_eip8321_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
         }
         leaves
     }
@@ -404,7 +434,8 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             | Self::Bellatrix(_)
             | Self::Capella(_)
             | Self::Gloas(_)
-            | Self::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+            | Self::Heze(_)
+            | Self::Eip8321(_) => Err(BeaconStateError::IncorrectStateVariant),
             Self::Deneb(_) | Self::Electra(_) | Self::Fulu(_) => {
                 complete_kzg_commitment_merkle_proof::<E>(
                     self.blob_kzg_commitments()?,
@@ -460,7 +491,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
 
         proof.push(signature.tree_hash_root());
 
-        let active_fields: &[bool] = if self.fork_name().heze_enabled() {
+        let active_fields: &[bool] = if self.fork_name().eip8321_enabled() {
+            &BEACON_BLOCK_BODY_ACTIVE_FIELDS_EIP8321
+        } else if self.fork_name().heze_enabled() {
             &BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE
         } else {
             &BEACON_BLOCK_BODY_ACTIVE_FIELDS
@@ -552,8 +585,8 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Electra(inner) => ListRef::from(&inner.deposits),
             Self::Fulu(inner) => ListRef::from(&inner.deposits),
             Self::Gloas(inner) => ListRef::from(&inner.deposits),
-            // `deposits` was removed from the block body in Heze (EIP-8321).
-            Self::Heze(_) => ListRef::Empty,
+            // `deposits` was removed from the block body in Heze.
+            Self::Heze(_) | Self::Eip8321(_) => ListRef::Empty,
         }
     }
 
@@ -580,6 +613,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Fulu(body) => Ok(ListRef::Basic(&body.bls_to_execution_changes)),
             Self::Gloas(body) => Ok(ListRef::Progressive(&body.bls_to_execution_changes)),
             Self::Heze(body) => Ok(ListRef::Progressive(&body.bls_to_execution_changes)),
+            Self::Eip8321(body) => Ok(ListRef::Progressive(&body.bls_to_execution_changes)),
         }
     }
 
@@ -628,6 +662,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
             Self::Heze(body) => {
                 Box::new(body.attestations.iter_mut().map(AttestationRefMut::Gloas))
             }
+            Self::Eip8321(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Gloas))
+            }
         }
     }
 
@@ -670,6 +707,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .push(exit)
                 .map_err(BeaconStateError::SszTypesError),
             Self::Heze(body) => body
+                .voluntary_exits
+                .push(exit)
+                .map_err(BeaconStateError::SszTypesError),
+            Self::Eip8321(body) => body
                 .voluntary_exits
                 .push(exit)
                 .map_err(BeaconStateError::SszTypesError),
@@ -718,6 +759,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .proposer_slashings
                 .push(slashing)
                 .map_err(BeaconStateError::SszTypesError),
+            Self::Eip8321(body) => body
+                .proposer_slashings
+                .push(slashing)
+                .map_err(BeaconStateError::SszTypesError),
         }
     }
 
@@ -756,8 +801,8 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .deposits
                 .push(deposit)
                 .map_err(BeaconStateError::SszTypesError),
-            // `deposits` is not part of the Heze block body (EIP-8321).
-            Self::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+            // `deposits` is not part of the Heze or EIP8321 block body.
+            Self::Heze(_) | Self::Eip8321(_) => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -799,8 +844,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 body.deposits = ssz::TryFromIter::try_from_iter(deposits)
                     .map_err(BeaconStateError::SszTypesError)?;
             }
-            // `deposits` is not part of the Heze block body (EIP-8321).
-            Self::Heze(_) => return Err(BeaconStateError::IncorrectStateVariant),
+            // `deposits` is not part of the Heze or EIP8321 block body.
+            Self::Heze(_) | Self::Eip8321(_) => {
+                return Err(BeaconStateError::IncorrectStateVariant);
+            }
         }
         Ok(())
     }
@@ -827,6 +874,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'_, E, Payl
             BeaconBlockBodyRef::Fulu { .. } => ForkName::Fulu,
             BeaconBlockBodyRef::Gloas { .. } => ForkName::Gloas,
             BeaconBlockBodyRef::Heze { .. } => ForkName::Heze,
+            BeaconBlockBodyRef::Eip8321 { .. } => ForkName::Eip8321,
         }
     }
 }
@@ -954,12 +1002,50 @@ impl<E: EthSpec> From<BeaconBlockBodyHeze<E, BlindedPayload<E>>>
             parent_execution_requests,
             signed_execution_payload_bid,
             payload_attestations,
+            _phantom,
+        } = body;
+
+        BeaconBlockBodyHeze {
+            randao_reveal,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            voluntary_exits,
+            sync_aggregate,
+            bls_to_execution_changes,
+            parent_execution_requests,
+            signed_execution_payload_bid,
+            payload_attestations,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// Post-Fulu block bodies without payloads can be converted into block bodies with payloads
+// TODO(eip8321) Look into whether we can remove this in the future since no blinded blocks post-gloas
+impl<E: EthSpec> From<BeaconBlockBodyEip8321<E, BlindedPayload<E>>>
+    for BeaconBlockBodyEip8321<E, FullPayload<E>>
+{
+    fn from(body: BeaconBlockBodyEip8321<E, BlindedPayload<E>>) -> Self {
+        let BeaconBlockBodyEip8321 {
+            randao_reveal,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            voluntary_exits,
+            sync_aggregate,
+            bls_to_execution_changes,
+            parent_execution_requests,
+            signed_execution_payload_bid,
+            payload_attestations,
             hash_chain_reveal,
             randao_commitment_registrations,
             _phantom,
         } = body;
 
-        BeaconBlockBodyHeze {
+        BeaconBlockBodyEip8321 {
             randao_reveal,
             graffiti,
             proposer_slashings,
@@ -1336,13 +1422,55 @@ impl<E: EthSpec> From<BeaconBlockBodyHeze<E, FullPayload<E>>>
             parent_execution_requests,
             signed_execution_payload_bid,
             payload_attestations,
+            _phantom,
+        } = body;
+
+        (
+            BeaconBlockBodyHeze {
+                randao_reveal,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                voluntary_exits,
+                sync_aggregate,
+                bls_to_execution_changes,
+                parent_execution_requests,
+                signed_execution_payload_bid,
+                payload_attestations,
+                _phantom: PhantomData,
+            },
+            None,
+        )
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockBodyEip8321<E, FullPayload<E>>>
+    for (
+        BeaconBlockBodyEip8321<E, BlindedPayload<E>>,
+        Option<ExecutionPayloadGloas<E>>,
+    )
+{
+    fn from(body: BeaconBlockBodyEip8321<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyEip8321 {
+            randao_reveal,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            voluntary_exits,
+            sync_aggregate,
+            bls_to_execution_changes,
+            parent_execution_requests,
+            signed_execution_payload_bid,
+            payload_attestations,
             hash_chain_reveal,
             randao_commitment_registrations,
             _phantom,
         } = body;
 
         (
-            BeaconBlockBodyHeze {
+            BeaconBlockBodyEip8321 {
                 randao_reveal,
                 graffiti,
                 proposer_slashings,
@@ -1570,6 +1698,13 @@ impl<E: EthSpec> BeaconBlockBodyHeze<E, FullPayload<E>> {
     }
 }
 
+impl<E: EthSpec> BeaconBlockBodyEip8321<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyEip8321<E, BlindedPayload<E>> {
+        let (block_body, _payload) = self.clone().into();
+        block_body
+    }
+}
+
 impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
     for (
         BeaconBlockBody<E, BlindedPayload<E>>,
@@ -1617,8 +1752,8 @@ mod tests {
         use crate::block::BeaconBlock;
         use crate::core::{ChainSpec, Spec};
 
-        /// Check the derived Heze body root against a manual computation using the EIP-8321
-        /// `active_fields(width=15, gaps=(1, 6))` layout: `eth1_data` and `deposits` are gaps and
+        /// Check the derived Heze body root against a manual computation using the Heze
+        /// `active_fields(width=13, gaps=(1, 6))` layout: `eth1_data` and `deposits` are gaps and
         /// contribute `Bytes32()` field roots.
         #[test]
         fn heze_body_progressive_container_root() {
@@ -1627,6 +1762,66 @@ mod tests {
             let block: BeaconBlock<E> = BeaconBlock::empty(&spec);
             let BeaconBlock::Heze(block) = block else {
                 panic!("expected a Heze block");
+            };
+            let body = &block.body;
+
+            let zero = Hash256::ZERO;
+            let field_roots = [
+                body.randao_reveal.tree_hash_root(),
+                zero, // eth1_data (gap)
+                body.graffiti.tree_hash_root(),
+                body.proposer_slashings.tree_hash_root(),
+                body.attester_slashings.tree_hash_root(),
+                body.attestations.tree_hash_root(),
+                zero, // deposits (gap)
+                body.voluntary_exits.tree_hash_root(),
+                body.sync_aggregate.tree_hash_root(),
+                body.bls_to_execution_changes.tree_hash_root(),
+                body.signed_execution_payload_bid.tree_hash_root(),
+                body.payload_attestations.tree_hash_root(),
+                body.parent_execution_requests.tree_hash_root(),
+            ];
+
+            let mut hasher = tree_hash::ProgressiveMerkleHasher::new();
+            for root in &field_roots {
+                hasher.write(root.as_slice()).unwrap();
+            }
+            let container_root = hasher.finish().unwrap();
+
+            // `active_fields = [1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1]`, bit-packed LE.
+            let mut active_fields = [0u8; 32];
+            active_fields[0] = 0xbd;
+            active_fields[1] = 0x1f;
+            let expected = tree_hash::mix_in_active_fields(&container_root, active_fields);
+
+            assert_eq!(body.tree_hash_root(), expected);
+
+            assert_eq!(
+                field_roots.len(),
+                BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE.len()
+            );
+            assert_eq!(
+                merkle_proof::pack_active_fields(&BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE).unwrap(),
+                Hash256::from(active_fields)
+            );
+        }
+    }
+
+    mod eip8321 {
+        use super::super::*;
+        use crate::block::BeaconBlock;
+        use crate::core::{ChainSpec, Spec};
+
+        /// Check the derived EIP8321 body root against a manual computation using the
+        /// `active_fields(width=15, gaps=(1, 6))` layout: `eth1_data` and `deposits` are gaps and
+        /// contribute `Bytes32()` field roots.
+        #[test]
+        fn eip8321_body_progressive_container_root() {
+            type E = Spec;
+            let spec: ChainSpec = ForkName::Eip8321.make_genesis_spec(E::default_spec());
+            let block: BeaconBlock<E> = BeaconBlock::empty(&spec);
+            let BeaconBlock::Eip8321(block) = block else {
+                panic!("expected an EIP8321 block");
             };
             let body = &block.body;
 
@@ -1662,6 +1857,15 @@ mod tests {
             let expected = tree_hash::mix_in_active_fields(&container_root, active_fields);
 
             assert_eq!(body.tree_hash_root(), expected);
+
+            assert_eq!(
+                field_roots.len(),
+                BEACON_BLOCK_BODY_ACTIVE_FIELDS_EIP8321.len()
+            );
+            assert_eq!(
+                merkle_proof::pack_active_fields(&BEACON_BLOCK_BODY_ACTIVE_FIELDS_EIP8321).unwrap(),
+                Hash256::from(active_fields)
+            );
         }
     }
 

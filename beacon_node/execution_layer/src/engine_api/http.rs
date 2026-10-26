@@ -1560,7 +1560,7 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }
             }
-            ForkName::Gloas | ForkName::Heze => {
+            ForkName::Gloas | ForkName::Heze | ForkName::Eip8321 => {
                 if engine_capabilities.get_payload_v6 {
                     self.get_payload_v6(fork_name, payload_id).await
                 } else {

@@ -6497,6 +6497,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Attempting to produce heze beacon block via non heze code path".to_owned(),
                 ));
             }
+            BeaconState::Eip8321(_) => {
+                return Err(BlockProductionError::HezeNotImplemented(
+                    "Attempting to produce an EIP8321 beacon block via non EIP8321 code path"
+                        .to_owned(),
+                ));
+            }
         };
 
         let block = SignedBeaconBlock::from_block(

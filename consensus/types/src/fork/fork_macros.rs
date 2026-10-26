@@ -59,6 +59,10 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Heze(value), extra_data)
             }
+            $crate::fork::ForkName::Eip8321 => {
+                let (value, extra_data) = $body;
+                ($t::Eip8321(value), extra_data)
+            }
         }
     };
 }

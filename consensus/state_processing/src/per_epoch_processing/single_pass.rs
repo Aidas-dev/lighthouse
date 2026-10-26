@@ -460,7 +460,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // [New in Heze:EIP-8321] Apply activated hash-chain RANDAO commitments. This runs after the
     // per-validator loop; `process_slashings` does not read these lists, so the ordering relative
     // to slashings is observably equivalent to the spec.
-    if fork_name.heze_enabled() && conf.registry_updates {
+    if fork_name.eip8321_enabled() && conf.registry_updates {
         super::process_pending_randao_commitments(state, spec)?;
     }
 

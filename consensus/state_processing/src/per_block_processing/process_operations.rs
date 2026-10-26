@@ -86,8 +86,8 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         )?;
     }
 
-    // [New in Heze:EIP-8321]
-    if state.fork_name_unchecked().heze_enabled()
+    // [New in EIP8321]
+    if state.fork_name_unchecked().eip8321_enabled()
         && let Ok(registrations) = block_body.randao_commitment_registrations()
     {
         for registration in registrations.iter() {
