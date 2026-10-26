@@ -1489,7 +1489,7 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x00],
             heze_fork_epoch: None,
-            eip8321_fork_version: [0x09, 0x00, 0x00, 0x00],
+            eip8321_fork_version: [0xE8, 0x32, 0x10, 0x00],
             eip8321_fork_epoch: None,
             max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
@@ -1652,7 +1652,7 @@ impl ChainSpec {
             heze_fork_version: [0x08, 0x00, 0x00, 0x01],
             heze_fork_epoch: None,
             // EIP8321
-            eip8321_fork_version: [0x09, 0x00, 0x00, 0x01],
+            eip8321_fork_version: [0xE8, 0x32, 0x10, 0x01],
             eip8321_fork_epoch: None,
 
             /*
@@ -1955,7 +1955,7 @@ impl ChainSpec {
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x64],
             heze_fork_epoch: None,
-            eip8321_fork_version: [0x09, 0x00, 0x00, 0x64],
+            eip8321_fork_version: [0xE8, 0x32, 0x10, 0x64],
             eip8321_fork_epoch: None,
             max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
