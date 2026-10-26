@@ -62,6 +62,7 @@ mod persisted_fork_choice;
 mod pre_finalization_cache;
 pub mod proposer_preferences_verification;
 pub mod proposer_prep_service;
+pub mod randao_commitment_verification;
 pub mod schema_change;
 pub mod shuffling_cache;
 pub mod single_attestation;
@@ -111,8 +112,8 @@ pub use migrate::MigratorConfig;
 pub use parking_lot;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{
-    AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-    ExitInvalid, ExitValidationError, ProposerSlashingValidationError,
+    AttestationValidationError, AttesterSlashingValidationError, BlockProcessingError,
+    DepositValidationError, ExitInvalid, ExitValidationError, ProposerSlashingValidationError,
 };
 pub use store;
 pub use types;

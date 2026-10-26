@@ -473,6 +473,7 @@ pub enum Work<E: EthSpec> {
     GossipPayloadAttestation(BlockingFn),
     GossipProposerPreferences(BlockingFn),
     GossipInclusionList(BlockingFn),
+    GossipRandaoCommitmentRegistration(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
     LightClientFinalityUpdateRequest(BlockingFn),
@@ -537,6 +538,7 @@ pub enum WorkType {
     GossipPayloadAttestation,
     GossipProposerPreferences,
     GossipInclusionList,
+    GossipRandaoCommitmentRegistration,
     LightClientBootstrapRequest,
     LightClientOptimisticUpdateRequest,
     LightClientFinalityUpdateRequest,
@@ -579,6 +581,9 @@ impl<E: EthSpec> Work<E> {
             Work::GossipPayloadAttestation(_) => WorkType::GossipPayloadAttestation,
             Work::GossipProposerPreferences(_) => WorkType::GossipProposerPreferences,
             Work::GossipInclusionList(_) => WorkType::GossipInclusionList,
+            Work::GossipRandaoCommitmentRegistration(_) => {
+                WorkType::GossipRandaoCommitmentRegistration
+            }
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
@@ -1053,6 +1058,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // Check inclusion lists next, they also influence fork choice.
                         } else if let Some(item) = work_queues.gossip_inclusion_list_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues
+                            .gossip_randao_commitment_registration_queue
+                            .pop()
+                        {
+                            Some(item)
                         // Check sync committee messages after attestations as their rewards are lesser
                         // and they don't influence fork choice.
                         } else if let Some(item) = work_queues.sync_contribution_queue.pop() {
@@ -1406,6 +1416,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipInclusionList { .. } => {
                                 work_queues.gossip_inclusion_list_queue.push(work, work_id)
                             }
+                            Work::GossipRandaoCommitmentRegistration { .. } => work_queues
+                                .gossip_randao_commitment_registration_queue
+                                .push(work, work_id),
                             Work::BlobsByRootsRequest { .. } => {
                                 work_queues.blob_broots_queue.push(work, work_id)
                             }
@@ -1523,6 +1536,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipInclusionList => {
                             work_queues.gossip_inclusion_list_queue.len()
                         }
+                        WorkType::GossipRandaoCommitmentRegistration => work_queues
+                            .gossip_randao_commitment_registration_queue
+                            .len(),
                         WorkType::LightClientBootstrapRequest => {
                             work_queues.lc_bootstrap_queue.len()
                         }
@@ -1733,6 +1749,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipPayloadAttestation(process_fn)
             | Work::GossipProposerPreferences(process_fn)
             | Work::GossipInclusionList(process_fn)
+            | Work::GossipRandaoCommitmentRegistration(process_fn)
             | Work::LightClientBootstrapRequest(process_fn)
             | Work::LightClientOptimisticUpdateRequest(process_fn)
             | Work::LightClientFinalityUpdateRequest(process_fn)

@@ -98,11 +98,13 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     Ok(())
 }
 
-/// Validates a `SignedRandaoCommitmentRegistration` and queues it for activation.
+/// Validates a `SignedRandaoCommitmentRegistration` against a state without mutating it.
 ///
-/// [New in Heze:EIP-8321]
-pub fn process_randao_commitment_registration<E: EthSpec>(
-    state: &mut BeaconState<E>,
+/// Shared by block processing and gossip validation.
+///
+/// [New in Eip8321: EIP-8321]
+pub fn verify_randao_commitment_registration<E: EthSpec>(
+    state: &BeaconState<E>,
     signed_registration: &SignedRandaoCommitmentRegistration,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -164,6 +166,21 @@ pub fn process_randao_commitment_registration<E: EthSpec>(
         );
     }
 
+    Ok(())
+}
+
+/// Validates a `SignedRandaoCommitmentRegistration` and queues it for activation.
+///
+/// [New in Eip8321: EIP-8321]
+pub fn process_randao_commitment_registration<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    signed_registration: &SignedRandaoCommitmentRegistration,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    verify_randao_commitment_registration(state, signed_registration, verify_signatures, spec)?;
+
+    let registration = &signed_registration.message;
     let activation_epoch = state
         .current_epoch()
         .safe_add(E::commitment_registration_delay())?;

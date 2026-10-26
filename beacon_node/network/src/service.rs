@@ -1611,15 +1611,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         ),
                 )
             }
-            PubsubMessage::RandaoCommitmentRegistration(registration) => {
-                // TODO(EIP-8321): route to gossip validation + beacon processor once the
-                // registration pipeline is implemented. Decoding is already supported.
-                trace!(
-                    %peer_id,
-                    validator_index = registration.message.validator_index,
-                    "Received a RANDAO commitment registration (validation pending)"
-                );
-            }
+            PubsubMessage::RandaoCommitmentRegistration(registration) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_randao_commitment_registration(
+                            message_id,
+                            peer_id,
+                            registration,
+                            seen_timestamp,
+                        ),
+                ),
             PubsubMessage::InclusionList(inclusion_list) => {
                 trace!(%peer_id, "Received a signed inclusion list");
                 self.handle_beacon_processor_send_result(

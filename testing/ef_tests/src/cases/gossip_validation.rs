@@ -21,8 +21,8 @@ use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
     Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    SignedContributionAndProof, SignedRandaoCommitmentRegistration, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -114,6 +114,7 @@ enum Topic {
     BlsToExecutionChange,
     SyncCommittee,
     SyncCommitteeContributionAndProof,
+    RandaoCommitmentRegistration,
 }
 
 #[derive(Debug)]
@@ -385,6 +386,12 @@ impl<E: EthSpec> GossipTester<E> {
                     message_id.clone(),
                     peer_id,
                 )?,
+            Topic::RandaoCommitmentRegistration => self.process_randao_commitment_registration(
+                path,
+                message_meta,
+                message_id.clone(),
+                peer_id,
+            )?,
         }
 
         self.validation_result(&message_id, &peer_id)
@@ -537,6 +544,27 @@ impl<E: EthSpec> GossipTester<E> {
 
         self.network_beacon_processor
             .process_gossip_bls_to_execution_change(message_id, peer_id, bls_to_execution_change);
+        Ok(())
+    }
+
+    fn process_randao_commitment_registration(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) -> Result<(), Error> {
+        let registration: SignedRandaoCommitmentRegistration =
+            ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        self.set_message_time(message_meta)?;
+
+        self.network_beacon_processor
+            .process_gossip_randao_commitment_registration(
+                message_id,
+                peer_id,
+                Box::new(registration),
+                std::time::Duration::from_millis(self.current_time_ms),
+            );
         Ok(())
     }
 

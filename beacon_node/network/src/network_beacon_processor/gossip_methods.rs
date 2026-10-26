@@ -4,6 +4,7 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
+use beacon_chain::BlockProcessingError;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
@@ -4436,6 +4437,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::LowToleranceError,
                     "invalid_gossip_inclusion_list",
                 );
+            }
+        }
+    }
+
+    #[instrument(
+        level = "trace",
+        skip_all,
+        fields(
+            peer_id = %peer_id,
+            validator_index = registration.message.validator_index,
+        )
+    )]
+    pub fn process_gossip_randao_commitment_registration(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        registration: Box<types::SignedRandaoCommitmentRegistration>,
+        seen_timestamp: Duration,
+    ) {
+        let result = self
+            .chain
+            .verify_randao_commitment_registration_for_gossip(&registration, seen_timestamp);
+
+        match result {
+            Ok(()) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(BlockProcessingError::RandaoCommitmentRegistrationInvalid { .. }) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_gossip_randao_commitment_registration",
+                );
+            }
+            Err(_) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
         }
     }

@@ -28,7 +28,10 @@ pub use altair::sync_committee::process_sync_aggregate;
 pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
 pub use is_valid_indexed_payload_attestation::is_valid_indexed_payload_attestation;
-pub use process_operations::process_operations;
+pub use process_operations::{
+    process_operations, process_randao_commitment_registration,
+    verify_randao_commitment_registration,
+};
 pub use verify_attestation::{
     verify_attestation_for_block_inclusion, verify_attestation_for_state,
 };
