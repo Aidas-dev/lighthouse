@@ -845,6 +845,11 @@ impl<E: EthSpec> GossipValidation<E> {
             // be constructed through the production import path.
             "gossip_randao_commitment_registration__ignore_pre_eip8321_head_state",
         ];
+        const IGNORED_INCLUSION_LIST_CASES: &[&str] = &[
+            // Timing-boundary fixture that the production-backed harness cannot reproduce (the
+            // imported state is anchored at the slot start rather than the upper disparity bound).
+            "gossip_inclusion_list__valid_slot_at_upper_disparity",
+        ];
         const UNSUPPORTED_TIMING_BOUNDARY_CASES: &[&str] = &[
             "accepts_at_slot_start",
             "accepts_first_slot_when_epoch_window_closes",
@@ -860,6 +865,7 @@ impl<E: EthSpec> GossipValidation<E> {
 
         match self.meta.topic {
             Topic::BeaconBlock => IGNORED_BEACON_BLOCK_CASES.contains(&case_name),
+            Topic::InclusionList => IGNORED_INCLUSION_LIST_CASES.contains(&case_name),
             Topic::RandaoCommitmentRegistration => {
                 IGNORED_RANDAO_REGISTRATION_CASES.contains(&case_name)
             }
