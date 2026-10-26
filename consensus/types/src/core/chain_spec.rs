@@ -2547,8 +2547,8 @@ fn default_heze_fork_version() -> [u8; 4] {
 }
 
 fn default_eip8321_fork_version() -> [u8; 4] {
-    // This value shouldn't be used.
-    [0xff, 0xff, 0xff, 0xff]
+    // Matches the mainnet `EIP8321` fork version.
+    [0xE8, 0x32, 0x10, 0x00]
 }
 
 /// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
