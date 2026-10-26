@@ -1027,11 +1027,10 @@ fn gossip_randao_commitment_registration() {
 //     GossipValidationHandler::<Spec>::new("gossip_execution_payload_envelope").run();
 // }
 
-// TODO(EIP-8321): enable once the topic is implemented in `GossipTopicKind`.
-// #[test]
-// fn gossip_inclusion_list() {
-//     GossipValidationHandler::<Spec>::new("gossip_inclusion_list").run();
-// }
+#[test]
+fn gossip_inclusion_list() {
+    GossipValidationHandler::<Spec>::new("gossip_inclusion_list").run();
+}
 
 // TODO(EIP-8321): enable once the topic is implemented in `GossipTopicKind`.
 // #[test]
