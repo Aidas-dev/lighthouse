@@ -42,8 +42,8 @@ use types::{
     AbstractExecPayload, Attestation, AttestationData, AttesterSlashing, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PayloadAttestation,
     PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate, SyncAggregateError,
-    SyncCommitteeContribution, Validator,
+    SignedBlsToExecutionChange, SignedRandaoCommitmentRegistration, SignedVoluntaryExit, Slot,
+    SyncAggregate, SyncAggregateError, SyncCommitteeContribution, Validator,
 };
 
 type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
@@ -62,6 +62,8 @@ pub struct OperationPool<E: EthSpec + Default> {
     voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, E>>>,
     /// Map from credential changing validator to their position in the queue.
     bls_to_execution_changes: RwLock<BlsToExecutionChanges<E>>,
+    /// Map from validator index to the RANDAO hash-chain commitment registration (Eip8321+).
+    randao_commitment_registrations: RwLock<HashMap<u64, SignedRandaoCommitmentRegistration>>,
     /// Map from payload attestation data to individual messages for aggregation at block production.
     payload_attestation_messages:
         RwLock<HashMap<PayloadAttestationData, Vec<PayloadAttestationMessage>>>,
@@ -664,6 +666,54 @@ impl<E: EthSpec> OperationPool<E> {
         self.bls_to_execution_changes
             .read()
             .existing_change_equals(address_change)
+    }
+
+    /// Insert a RANDAO commitment registration, returning `false` if one is already known for
+    /// this validator.
+    ///
+    /// [New in Eip8321: EIP-8321]
+    pub fn insert_randao_commitment_registration(
+        &self,
+        registration: SignedRandaoCommitmentRegistration,
+    ) -> bool {
+        let mut registrations = self.randao_commitment_registrations.write();
+        match registrations.entry(registration.message.validator_index) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(registration);
+                true
+            }
+            std::collections::hash_map::Entry::Occupied(_) => false,
+        }
+    }
+
+    /// Get RANDAO commitment registrations that are still applicable to `state`.
+    ///
+    /// [New in Eip8321: EIP-8321]
+    pub fn get_randao_commitment_registrations(
+        &self,
+        state: &BeaconState<E>,
+    ) -> Vec<SignedRandaoCommitmentRegistration> {
+        let Ok(commitments) = state.randao_commitments() else {
+            return vec![];
+        };
+        let pending = state.pending_randao_commitments().ok();
+        let unset = types::consts::heze::UNSET_RANDAO_COMMITMENT;
+
+        self.randao_commitment_registrations
+            .read()
+            .values()
+            .filter(|registration| {
+                let index = registration.message.validator_index as usize;
+                commitments.get(index).copied().unwrap_or(unset) == unset
+                    && pending.is_none_or(|pending| {
+                        !pending.iter().any(|entry| {
+                            entry.validator_index == registration.message.validator_index
+                        })
+                    })
+            })
+            .take(E::MaxRandaoCommitmentRegistrations::to_usize())
+            .cloned()
+            .collect()
     }
 
     /// Insert a BLS to execution change into the pool, *only if* no prior change is known.

@@ -891,7 +891,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         )
                         .map_err(BlockProductionError::SszTypesError)?,
                         hash_chain_reveal: Hash256::ZERO,
-                        randao_commitment_registrations: ProgressiveVariableList::empty(),
+                        randao_commitment_registrations: ProgressiveVariableList::try_from_iter(
+                            self.op_pool.get_randao_commitment_registrations(&state),
+                        )
+                        .map_err(BlockProductionError::SszTypesError)?,
                         _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                     },
                 })

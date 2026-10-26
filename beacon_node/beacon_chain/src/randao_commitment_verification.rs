@@ -20,8 +20,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head = self.head();
         let state = &head.snapshot.beacon_state;
 
-        // This topic only exists from Eip8321 onwards.
-        if !state.fork_name_unchecked().eip8321_enabled() {
+        // This topic only exists from Eip8321 onwards. Check the fork version as well as the
+        // variant, so a head state that has not activated the fork yet is ignored.
+        if !state.fork_name_unchecked().eip8321_enabled()
+            || state.fork().current_version != self.spec.eip8321_fork_version
+        {
             return Err(BlockProcessingError::IncorrectStateType);
         }
 
