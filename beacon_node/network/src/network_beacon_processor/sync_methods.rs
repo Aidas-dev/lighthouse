@@ -1068,7 +1068,8 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                     | BlockError::KnownInvalidExecutionPayload(_)
                     | BlockError::Slashable
                     | BlockError::InvalidBlobCount { .. }
-                    | BlockError::BidParentRootMismatch { .. } => block_peer_penalty(&e),
+                    | BlockError::BidParentRootMismatch { .. }
+                    | BlockError::BidParentExecutionHashMismatch { .. } => block_peer_penalty(&e),
                 };
                 Self::Error {
                     penalty,

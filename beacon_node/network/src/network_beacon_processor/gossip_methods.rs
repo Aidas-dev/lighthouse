@@ -1779,7 +1779,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::KnownInvalidExecutionPayload(_))
             | Err(e @ BlockError::GenesisBlock)
             | Err(e @ BlockError::InvalidBlobCount { .. })
-            | Err(e @ BlockError::BidParentRootMismatch { .. }) => {
+            | Err(
+                e @ BlockError::BidParentRootMismatch { .. }
+                | e @ BlockError::BidParentExecutionHashMismatch { .. },
+            ) => {
                 warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
