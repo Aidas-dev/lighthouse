@@ -75,7 +75,7 @@ use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, ParentImportStatus, PayloadVerificationStatus};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
-use proto_array::{Block as ProtoBlock, PayloadBlockHash};
+use proto_array::{Block as ProtoBlock, PayloadBlockHash, PayloadStatus as FcPayloadStatus};
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -333,6 +333,15 @@ pub enum BlockError {
     BidParentRootMismatch {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
+    },
+    /// The bid does not build on the parent block's execution head.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer should be penalized.
+    BidParentExecutionHashMismatch {
+        bid_parent_hash: ExecutionBlockHash,
+        expected: ExecutionBlockHash,
     },
     /// The slot of a Gloas data column sidecar does not match the slot of its bid.
     ///
@@ -989,13 +998,29 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             verify_parent_block_and_envelope_are_known::<T>(&fork_choice_read_lock, block)?;
 
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
-        if let Ok(bid) = block.message().body().signed_execution_payload_bid()
-            && bid.message().parent_block_root() != block.message().parent_root()
-        {
-            return Err(BlockError::BidParentRootMismatch {
-                bid_parent_root: bid.message().parent_block_root(),
-                block_parent_root: block.message().parent_root(),
-            });
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            if bid.message().parent_block_root() != block.message().parent_root() {
+                return Err(BlockError::BidParentRootMismatch {
+                    bid_parent_root: bid.message().parent_block_root(),
+                    block_parent_root: block.message().parent_root(),
+                });
+            }
+
+            // [New in Gloas]: the bid must build on the parent's execution head.
+            let parent_payload_status = if parent_block.payload_received {
+                FcPayloadStatus::Full
+            } else {
+                FcPayloadStatus::Empty
+            };
+            if let PayloadBlockHash::Hash(expected) =
+                parent_block.head_payload_block_hash(parent_payload_status)
+                && bid.message().parent_block_hash() != expected
+            {
+                return Err(BlockError::BidParentExecutionHashMismatch {
+                    bid_parent_hash: bid.message().parent_block_hash(),
+                    expected,
+                });
+            }
         }
 
         drop(fork_choice_read_lock);

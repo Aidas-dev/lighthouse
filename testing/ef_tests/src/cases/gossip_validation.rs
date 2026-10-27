@@ -365,7 +365,17 @@ impl<E: EthSpec> GossipTester<E> {
                 peer_id,
             )?,
             Topic::BeaconBlock => {
-                self.process_beacon_block(path, message_meta, message_id.clone(), peer_id)?
+                match self.process_beacon_block(path, message_meta, message_id.clone(), peer_id) {
+                    Ok(()) => {}
+                    // Blocks whose operation lists exceed the SSZ decoding limits are rejected at
+                    // decode time by Lighthouse, which is exactly the expected gossip outcome.
+                    Err(Error::FailedToParseTest(_))
+                        if message_meta.expected == ExpectedOutcome::Reject =>
+                    {
+                        return Ok(MessageAcceptance::Reject);
+                    }
+                    Err(e) => return Err(e),
+                }
             }
             Topic::VoluntaryExit => {
                 self.process_voluntary_exit(path, message_meta, message_id.clone(), peer_id)?
