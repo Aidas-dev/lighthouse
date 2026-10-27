@@ -6,12 +6,16 @@ use ::fork_choice::InvalidationOperation;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::slot_clock::{SlotClock, TestingSlotClock};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-use beacon_chain::{BlockError, NotifyExecutionLayer};
+use beacon_chain::{BlockError, NotifyExecutionLayer, PayloadVerificationStatus};
 use bls::Signature;
-use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
+use execution_layer::{
+    PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
+};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerId};
 use network::{NetworkBeaconProcessor, NetworkMessage, ReprocessAllowance};
 use serde::Deserialize;
+use state_processing::VerifySignatures;
+use state_processing::envelope_processing::verify_execution_payload_envelope;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -21,8 +25,9 @@ use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
     Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedInclusionList, SignedRandaoCommitmentRegistration,
-    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedInclusionList,
+    SignedRandaoCommitmentRegistration, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -189,6 +194,7 @@ impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
 
 struct GossipTester<E: EthSpec> {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    payload_envelopes: HashMap<String, SignedExecutionPayloadEnvelope<E>>,
     network_beacon_processor: Arc<NetworkBeaconProcessor<EphemeralHarnessType<E>>>,
     network_rx: Mutex<tokio::sync::mpsc::UnboundedReceiver<NetworkMessage<E>>>,
     spec: ChainSpec,
@@ -200,6 +206,7 @@ impl<E: EthSpec> GossipTester<E> {
     fn new(case: &GossipValidation<E>, spec: ChainSpec) -> Result<Self, Error> {
         let genesis_time = case.state.genesis_time();
         let blocks = case.load_beacon_blocks(&spec)?;
+        let payload_envelopes = case.load_payload_envelopes()?;
         let current_time_ms = case.current_time_ms(&blocks, &spec)?;
         let spec = Arc::new(spec);
 
@@ -210,6 +217,7 @@ impl<E: EthSpec> GossipTester<E> {
 
         let tester = Self {
             harness,
+            payload_envelopes,
             network_beacon_processor: Arc::new(network_beacon_processor),
             network_rx: Mutex::new(network_rx),
             spec: spec.as_ref().clone(),
@@ -316,13 +324,20 @@ impl<E: EthSpec> GossipTester<E> {
             if setup_block.failed {
                 continue;
             }
-            if initial_block_index == Some(index) {
-                continue;
-            }
             let block = blocks.get(&setup_block.block).ok_or_else(|| {
                 Error::FailedToParseTest(format!("unknown block file {}", setup_block.block))
             })?;
-            self.import_setup_block(block.clone(), setup_block.payload_status)?;
+            if initial_block_index != Some(index) {
+                self.import_setup_block(block.clone(), setup_block.payload_status)?;
+            }
+            if let Some(payload_name) = &setup_block.payload {
+                let envelope = self.payload_envelopes.get(payload_name).ok_or_else(|| {
+                    Error::FailedToParseTest(format!(
+                        "unknown payload envelope file {payload_name}"
+                    ))
+                })?;
+                self.import_setup_payload(block, envelope)?;
+            }
         }
 
         Ok(())
@@ -726,6 +741,77 @@ impl<E: EthSpec> GossipTester<E> {
         }
     }
 
+    /// Verify and import a signed execution payload envelope for a setup block, making the block
+    /// `Full` in fork choice (mirrors the `fork_choice` EF harness).
+    fn import_setup_payload(
+        &self,
+        block: &SignedBeaconBlock<E>,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+    ) -> Result<(), Error> {
+        let block_root = block.canonical_root();
+        let state_root = block.state_root();
+        let state = self
+            .harness
+            .chain
+            .store
+            .get_hot_state(&state_root, true)
+            .map_err(|e| Error::InternalError(format!("Failed to load state: {e:?}")))?
+            .ok_or_else(|| {
+                Error::InternalError(format!("State not found for root {state_root:?}"))
+            })?;
+
+        verify_execution_payload_envelope(
+            &state,
+            envelope,
+            VerifySignatures::True,
+            state_root,
+            &self.spec,
+        )
+        .map_err(|e| {
+            Error::InternalError(format!("Failed to verify setup payload envelope: {e:?}"))
+        })?;
+
+        let block_hash = envelope.message.payload.block_hash;
+        if let Some(el) = &self.harness.mock_execution_layer {
+            el.server.set_new_payload_status(
+                block_hash,
+                PayloadStatusV1 {
+                    status: JsonPayloadStatusV1Status::Valid.into(),
+                    latest_valid_hash: Some(block_hash),
+                    validation_error: None,
+                    inclusion_list_satisfied: None,
+                },
+            );
+        }
+
+        self.harness
+            .chain
+            .store
+            .put_payload_envelope(&block_root, envelope)
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "Failed to store payload envelope for {block_root:?}: {e:?}"
+                ))
+            })?;
+
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_payload_envelope_received(
+                block_root,
+                PayloadVerificationStatus::Verified,
+                block_hash,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "on_payload_envelope_received for {block_root:?} failed: {e:?}"
+                ))
+            })?;
+
+        Ok(())
+    }
+
     fn configure_payload_status(
         &self,
         block: &SignedBeaconBlock<E>,
@@ -954,6 +1040,21 @@ impl<E: EthSpec> GossipValidation<E> {
         // choice represents that genesis anchor by the real genesis block root, so let the anchor
         // helper use its production default for this placeholder case.
         Ok((checkpoint.epoch.as_u64() != 0 || !checkpoint.root.is_zero()).then_some(checkpoint))
+    }
+
+    fn load_payload_envelopes(
+        &self,
+    ) -> Result<HashMap<String, SignedExecutionPayloadEnvelope<E>>, Error> {
+        self.meta
+            .blocks
+            .iter()
+            .filter_map(|block| block.payload.as_ref())
+            .map(|name| {
+                let envelope: SignedExecutionPayloadEnvelope<E> =
+                    ssz_decode_file(&self.path.join(format!("{name}.ssz_snappy")))?;
+                Ok((name.clone(), envelope))
+            })
+            .collect()
     }
 
     fn load_beacon_blocks(
