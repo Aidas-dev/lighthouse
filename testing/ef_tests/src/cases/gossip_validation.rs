@@ -1084,13 +1084,16 @@ impl<E: EthSpec> GossipValidation<E> {
             block_names.insert(block.clone());
         }
 
-        block_names
+        // Message blocks that exceed Lighthouse's SSZ list limits are intentionally rejected at
+        // decode time; they must not abort loading the whole test case.
+        Ok(block_names
             .into_iter()
-            .map(|name| {
-                let block = load_beacon_block(&self.path, &name, spec)?;
-                Ok((name, block))
+            .filter_map(|name| {
+                load_beacon_block(&self.path, &name, spec)
+                    .ok()
+                    .map(|block| (name, block))
             })
-            .collect()
+            .collect())
     }
 }
 
