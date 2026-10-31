@@ -162,6 +162,10 @@ async fn process_pending_deposits(
 ) -> (BeaconState<MinimalEthSpec>, BeaconState<MinimalEthSpec>) {
     let mut spec = ForkName::Gloas.make_genesis_spec(MinimalEthSpec::default_spec());
     spec.heze_fork_epoch = heze_fork_epoch;
+    // Keep the slot duration constant across the Heze fork: EIP-8198 scales per-epoch churn by
+    // `slot_duration_ms_heze / slot_duration_ms`, so a shortened Heze slot would otherwise make
+    // the single-epoch churn below a test of the slot schedule rather than of deposit handling.
+    spec.slot_duration_ms_heze = spec.slot_duration_ms();
     let spec = Arc::new(spec);
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .spec(spec.clone())
