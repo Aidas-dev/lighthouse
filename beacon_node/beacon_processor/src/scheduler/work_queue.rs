@@ -311,6 +311,7 @@ pub struct BeaconProcessorQueueLengths {
     blob_broots_queue: usize,
     blob_brange_queue: usize,
     dcbroots_queue: usize,
+    ilbindices_queue: usize,
     dcbrange_queue: usize,
     payload_envelopes_brange_queue: usize,
     payload_envelopes_broots_queue: usize,
@@ -394,6 +395,7 @@ impl BeaconProcessorQueueLengths {
             blob_broots_queue: 1024,
             blob_brange_queue: 1024,
             dcbroots_queue: 1024,
+            ilbindices_queue: 1024,
             dcbrange_queue: 1024,
             payload_envelopes_brange_queue: 1024,
             payload_envelopes_broots_queue: 1024,
@@ -459,6 +461,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub blob_broots_queue: FifoQueue<Work<E>>,
     pub blob_brange_queue: FifoQueue<Work<E>>,
     pub dcbroots_queue: FifoQueue<Work<E>>,
+    pub ilbindices_queue: FifoQueue<Work<E>>,
     pub dcbrange_queue: FifoQueue<Work<E>>,
     pub gossip_bls_to_execution_change_queue: FifoQueue<Work<E>>,
     pub gossip_execution_payload_queue: FifoQueue<Work<E>>,
@@ -543,6 +546,7 @@ impl<E: EthSpec> WorkQueues<E> {
         let blob_broots_queue = FifoQueue::new(queue_lengths.blob_broots_queue);
         let blob_brange_queue = FifoQueue::new(queue_lengths.blob_brange_queue);
         let dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
+        let ilbindices_queue = FifoQueue::new(queue_lengths.ilbindices_queue);
         let dcbrange_queue = FifoQueue::new(queue_lengths.dcbrange_queue);
         let payload_envelopes_brange_queue =
             FifoQueue::new(queue_lengths.payload_envelopes_brange_queue);
@@ -615,6 +619,7 @@ impl<E: EthSpec> WorkQueues<E> {
             blob_broots_queue,
             blob_brange_queue,
             dcbroots_queue,
+            ilbindices_queue,
             dcbrange_queue,
             payload_envelopes_brange_queue,
             payload_envelopes_broots_queue,
@@ -641,14 +646,14 @@ impl<E: EthSpec> WorkQueues<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{BeaconState, Eth1Data, ForkName, MainnetEthSpec};
+    use types::{BeaconState, Eth1Data, ForkName, Spec};
 
     #[test]
     fn min_queue_len() {
         // State with no validators.
-        let spec = ForkName::latest().make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = ForkName::latest().make_genesis_spec(Spec::default_spec());
         let genesis_time = 0;
-        let state = BeaconState::<MainnetEthSpec>::new(genesis_time, Eth1Data::default(), &spec);
+        let state = BeaconState::<Spec>::new(genesis_time, Eth1Data::default(), &spec);
         assert_eq!(state.validators().len(), 0);
         let queue_lengths = BeaconProcessorQueueLengths::from_state(&state, &spec).unwrap();
         assert_eq!(queue_lengths.attestation_queue, MIN_QUEUE_LEN);

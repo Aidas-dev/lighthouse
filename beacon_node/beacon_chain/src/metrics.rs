@@ -558,6 +558,16 @@ pub static PAYLOAD_ATTESTATION_PRODUCTION_SECONDS: LazyLock<Result<Histogram>> =
     });
 
 /*
+ * Inclusion List Production
+ */
+pub static INCLUSION_LIST_PRODUCTION_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_inclusion_list_production_seconds",
+        "Full runtime of inclusion list production",
+    )
+});
+
+/*
  * Fork Choice
  */
 pub static FORK_CHOICE_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
@@ -2387,10 +2397,7 @@ fn scrape_head_state<E: EthSpec>(state: &BeaconState<E>, state_root: Hash256) {
     );
     set_gauge_by_u64(
         &HEAD_STATE_ETH1_DEPOSITS_INTEROP,
-        state
-            .eth1_data()
-            .map(|eth1_data| eth1_data.deposit_count)
-            .unwrap_or_default(),
+        state.eth1_data().map_or(0, |data| data.deposit_count),
     );
     set_gauge_by_usize(&HEAD_STATE_TOTAL_VALIDATORS, state.validators().len());
     set_gauge_by_u64(

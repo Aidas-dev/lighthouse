@@ -48,6 +48,7 @@ use validator_services::{
     block_service::{BlockService, BlockServiceBuilder},
     builder_preferences_service::BuilderPreferencesService,
     duties_service::{self, DutiesService, DutiesServiceBuilder},
+    inclusion_list_service::InclusionListService,
     latency_service,
     payload_attestation_service::PayloadAttestationService,
     preparation_service::{PreparationService, PreparationServiceBuilder},
@@ -99,6 +100,7 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
     randao_registration_service: RandaoRegistrationService<ValidatorStore<E>, SystemTimeSlotClock>,
+    inclusion_list_service: InclusionListService<ValidatorStore<E>, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore<E>>,
     configured_builders: BuilderStore,
     builder_preferences_service: BuilderPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
@@ -292,7 +294,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
             let i = x.0;
             let url = x.1;
-            let slot_duration = context.eth2_config.spec.get_slot_duration();
+            let slot_duration = context.eth2_config.spec.genesis_slot_duration();
 
             let mut beacon_node_http_client_builder = ClientBuilder::new();
 
@@ -410,10 +412,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             ctx.shared.write().genesis_time = Some(genesis_time);
         }
 
-        let slot_clock = SystemTimeSlotClock::new(
-            context.eth2_config.spec.genesis_slot,
+        let slot_clock = SystemTimeSlotClock::from_spec::<E>(
             Duration::from_secs(genesis_time),
-            context.eth2_config.spec.get_slot_duration(),
+            &context.eth2_config.spec,
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
@@ -485,14 +486,16 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let attestation_selection_proof_config = if config.distributed {
             SelectionProofConfig {
                 lookahead_slot: SELECTION_PROOF_SLOT_LOOKAHEAD_DVT,
-                computation_offset: slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM,
+                computation_offset: slot_clock.current_slot_duration()
+                    / SELECTION_PROOF_SCHEDULE_DENOM,
                 selections_endpoint: true,
                 parallel_sign: true,
             }
         } else {
             SelectionProofConfig {
                 lookahead_slot: SELECTION_PROOF_SLOT_LOOKAHEAD,
-                computation_offset: slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM,
+                computation_offset: slot_clock.current_slot_duration()
+                    / SELECTION_PROOF_SCHEDULE_DENOM,
                 selections_endpoint: false,
                 parallel_sign: false,
             }
@@ -633,6 +636,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .randao_chain(randao_chain)
             .build()?;
 
+        let inclusion_list_service = InclusionListService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
         Ok(Self {
             context,
             duties_service,
@@ -641,6 +653,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             sync_committee_service,
             payload_attestation_service,
             proposer_preferences_service,
+            inclusion_list_service,
             doppelganger_service,
             preparation_service,
             randao_registration_service,
@@ -652,6 +665,25 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             http_api_listen_addr: None,
             genesis_time,
         })
+    }
+
+    /// Send proposer preparations to the beacon node until genesis.
+    ///
+    /// The beacon node sets its custody group count from these preparations. Before genesis, the
+    /// new custody group count is effective from epoch 0.
+    async fn publish_preparations_before_genesis(&self) {
+        let spec = &self.context.eth2_config.spec;
+        loop {
+            duties_service::poll_validator_indices(&self.duties_service).await;
+            if let Err(e) = self
+                .preparation_service
+                .prepare_proposers_and_publish(spec)
+                .await
+            {
+                error!(error = ?e, "Error during pre-genesis proposer preparation");
+            }
+            sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
+        }
     }
 
     pub async fn start_service(&mut self) -> Result<(), String> {
@@ -698,7 +730,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         };
 
         // Wait until genesis has occurred.
-        wait_for_genesis(self.genesis_time).await?;
+        tokio::select! {
+            biased;
+            result = wait_for_genesis(self.genesis_time) => result?,
+            () = self.publish_preparations_before_genesis() => (),
+        };
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
@@ -709,12 +745,12 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         self.attestation_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service()
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
         self.sync_committee_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service()
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
         if self.context.eth2_config.spec.is_gloas_scheduled() {
@@ -732,6 +768,13 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 .clone()
                 .start_update_service()
                 .map_err(|e| format!("Unable to start builder preferences service: {}", e))?;
+        }
+
+        if self.context.eth2_config.spec.is_heze_scheduled() {
+            self.inclusion_list_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start inclusion list service: {}", e))?;
         }
 
         self.preparation_service
@@ -765,12 +808,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         }
 
         let context = self.context.clone();
-        spawn_notifier(
-            self.duties_service.clone(),
-            context.executor,
-            &self.context.eth2_config.spec,
-        )
-        .map_err(|e| format!("Failed to start notifier: {}", e))?;
+        spawn_notifier(self.duties_service.clone(), context.executor)
+            .map_err(|e| format!("Failed to start notifier: {}", e))?;
 
         if self.config.enable_latency_measurement_service {
             latency_service::start_latency_service(

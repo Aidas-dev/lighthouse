@@ -50,7 +50,9 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         ctxt,
         spec,
     )?;
-    process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
+    if !state.fork_name_unchecked().heze_enabled() {
+        process_deposits(state, &block_body.deposits()?.to_cow_slice(), spec)?;
+    }
     process_exits(
         state,
         &block_body.voluntary_exits().to_cow_slice(),
@@ -393,8 +395,11 @@ pub mod altair_deneb {
 
                     if !validator_participation.has_flag(flag_index)? {
                         validator_participation.add_flag(flag_index)?;
-                        proposer_reward_numerator
-                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+                        proposer_reward_numerator.safe_add_assign(
+                            state
+                                .get_base_reward_for_epoch(index, data.target.epoch)?
+                                .safe_mul(weight)?,
+                        )?;
 
                         update_progressive_balances_on_attestation(
                             state,
@@ -534,8 +539,11 @@ pub mod gloas {
 
                     if !validator_participation.has_flag(flag_index)? {
                         validator_participation.add_flag(flag_index)?;
-                        proposer_reward_numerator
-                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+                        proposer_reward_numerator.safe_add_assign(
+                            state
+                                .get_base_reward_for_epoch(index, data.target.epoch)?
+                                .safe_mul(weight)?,
+                        )?;
                         will_set_new_flag = true;
 
                         update_progressive_balances_on_attestation(
@@ -773,19 +781,16 @@ pub fn process_deposits<E: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     // [Modified in Electra:EIP6110]
     // Disable former deposit mechanism once all prior deposits are processed
-    // Heze (EIP-8321) removed the eth1 bridge state, so there are no deposits to process.
-    let Ok(eth1_data) = state.eth1_data() else {
-        return Ok(());
-    };
-    let eth1_deposit_index = state.eth1_deposit_index().unwrap_or_default();
     let deposit_requests_start_index = state.deposit_requests_start_index().unwrap_or(u64::MAX);
-    let eth1_deposit_index_limit =
-        std::cmp::min(deposit_requests_start_index, eth1_data.deposit_count);
+    let eth1_deposit_index_limit = std::cmp::min(
+        deposit_requests_start_index,
+        state.eth1_data()?.deposit_count,
+    );
 
-    if eth1_deposit_index < eth1_deposit_index_limit {
+    if state.eth1_deposit_index()? < eth1_deposit_index_limit {
         let expected_deposit_len = std::cmp::min(
             E::MaxDeposits::to_u64(),
-            eth1_deposit_index_limit.safe_sub(eth1_deposit_index)?,
+            eth1_deposit_index_limit.safe_sub(state.eth1_deposit_index()?)?,
         );
         block_verify!(
             deposits.len() as u64 == expected_deposit_len,
@@ -812,7 +817,7 @@ pub fn process_deposits<E: EthSpec>(
             verify_deposit_merkle_proof(
                 state,
                 deposit,
-                eth1_deposit_index.safe_add(i as u64)?,
+                state.eth1_deposit_index()?.safe_add(i as u64)?,
                 spec,
             )
             .map_err(|e| e.into_with_index(i))
@@ -834,23 +839,18 @@ pub fn apply_deposit<E: EthSpec>(
     increment_eth1_deposit_index: bool,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let deposit_index = state.eth1_deposit_index().unwrap_or_default() as usize;
+    let deposit_index = state.eth1_deposit_index()? as usize;
     if let Some(proof) = proof {
         let deposit = Deposit {
             proof,
             data: deposit_data.clone(),
         };
-        verify_deposit_merkle_proof(
-            state,
-            &deposit,
-            state.eth1_deposit_index().unwrap_or_default(),
-            spec,
-        )
-        .map_err(|e| e.into_with_index(deposit_index))?;
+        verify_deposit_merkle_proof(state, &deposit, state.eth1_deposit_index()?, spec)
+            .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
-    if increment_eth1_deposit_index && let Ok(eth1_deposit_index) = state.eth1_deposit_index_mut() {
-        eth1_deposit_index.safe_add_assign(1)?;
+    if increment_eth1_deposit_index {
+        state.eth1_deposit_index_mut()?.safe_add_assign(1)?;
     }
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key

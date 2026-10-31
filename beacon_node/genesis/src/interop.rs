@@ -43,6 +43,9 @@ pub struct InteropGenesisBuilder<E: EthSpec> {
 
     /// The execution payload header to embed in the genesis state.
     execution_payload_header: Option<ExecutionPayloadHeader<E>>,
+
+    /// Override the request start index for fork transition test networks.
+    deposit_requests_start_index: Option<u64>,
 }
 
 impl<E: EthSpec> InteropGenesisBuilder<E> {
@@ -79,6 +82,11 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
         execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     ) -> Self {
         self.execution_payload_header = execution_payload_header;
+        self
+    }
+
+    pub fn set_deposit_requests_start_index(mut self, index: u64) -> Self {
+        self.deposit_requests_start_index = Some(index);
         self
     }
 
@@ -139,6 +147,12 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
         )
         .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
 
+        if let Some(index) = self.deposit_requests_start_index {
+            *state
+                .deposit_requests_start_index_mut()
+                .map_err(|e| format!("Unable to set deposit request index: {:?}", e))? = index;
+        }
+
         *state.genesis_time_mut() = genesis_time;
 
         // Invalidate all the caches after all the manual state surgery.
@@ -192,9 +206,9 @@ pub fn interop_genesis_state_with_eth1<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{MinimalEthSpec, test_utils::generate_deterministic_keypairs};
+    use types::{Spec, test_utils::generate_deterministic_keypairs};
 
-    type TestEthSpec = MinimalEthSpec;
+    type TestEthSpec = Spec;
 
     #[test]
     fn interop_state() {
@@ -214,10 +228,7 @@ mod test {
         .expect("should build state");
 
         assert_eq!(
-            state
-                .eth1_data()
-                .map(|eth1_data| eth1_data.block_hash)
-                .unwrap_or_default(),
+            state.eth1_data().unwrap().block_hash,
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );
@@ -375,10 +386,7 @@ mod test {
         .expect("should build state");
 
         assert_eq!(
-            state
-                .eth1_data()
-                .map(|eth1_data| eth1_data.block_hash)
-                .unwrap_or_default(),
+            state.eth1_data().unwrap().block_hash,
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );

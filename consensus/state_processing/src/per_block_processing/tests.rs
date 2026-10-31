@@ -229,7 +229,7 @@ async fn valid_4_deposits() {
 
     let result = process_operations::process_deposits(
         state,
-        &head_block.body().deposits().to_cow_slice(),
+        &head_block.body().deposits().unwrap().to_cow_slice(),
         &spec,
     );
 
@@ -262,7 +262,7 @@ async fn invalid_deposit_deposit_count_too_big() {
     state.eth1_data_mut().unwrap().deposit_count = big_deposit_count;
     let result = process_operations::process_deposits(
         state,
-        &head_block.body().deposits().to_cow_slice(),
+        &head_block.body().deposits().unwrap().to_cow_slice(),
         &spec,
     );
 
@@ -301,7 +301,7 @@ async fn invalid_deposit_count_too_small() {
     state.eth1_data_mut().unwrap().deposit_count = small_deposit_count;
     let result = process_operations::process_deposits(
         state,
-        &head_block.body().deposits().to_cow_slice(),
+        &head_block.body().deposits().unwrap().to_cow_slice(),
         &spec,
     );
 
@@ -342,7 +342,7 @@ async fn invalid_deposit_bad_merkle_proof() {
     *state.eth1_deposit_index_mut().unwrap() += 1;
     let result = process_operations::process_deposits(
         state,
-        &head_block.body().deposits().to_cow_slice(),
+        &head_block.body().deposits().unwrap().to_cow_slice(),
         &spec,
     );
 
@@ -380,7 +380,7 @@ async fn invalid_deposit_wrong_sig() {
 
     let result = process_operations::process_deposits(
         state,
-        &head_block.body().deposits().to_cow_slice(),
+        &head_block.body().deposits().unwrap().to_cow_slice(),
         &spec,
     );
     // Expecting Ok(()) even though the block signature does not correspond to the correct public key
@@ -411,7 +411,7 @@ async fn invalid_deposit_invalid_pub_key() {
 
     let result = process_operations::process_deposits(
         state,
-        &head_block.body().deposits().to_cow_slice(),
+        &head_block.body().deposits().unwrap().to_cow_slice(),
         &spec,
     );
 

@@ -30,7 +30,7 @@ use bls::{
 use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
-    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas,
+    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas, NewPayloadRequestHeze,
     auth::JwtKey,
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
@@ -253,11 +253,7 @@ pub fn test_custody_context<E: EthSpec>(
 ) -> Arc<CustodyContext<EphemeralHarnessType<E>>> {
     let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
     let complete_blob_backfill = false;
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(0),
-        spec.get_slot_duration(),
-    );
+    let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
     Arc::new(CustodyContext::new(
         node_custody_type,
         ordered_custody_column_indices,
@@ -281,6 +277,7 @@ pub struct Builder<T: BeaconChainTypes> {
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     proof_engine: Option<Arc<ProofEngine>>,
+    builders: Option<Arc<builder_client::Builders<T::EthSpec>>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
@@ -476,6 +473,7 @@ where
             execution_layer: None,
             mock_execution_layer: None,
             proof_engine: None,
+            builders: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
@@ -620,26 +618,26 @@ where
             .expect("cannot recalculate fork times without spec");
         mock.server.execution_block_generator().shanghai_time =
             spec.capella_fork_epoch.map(|epoch| {
-                genesis_time
-                    + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+                spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                    .expect("fork time fits in u64")
             });
         mock.server.execution_block_generator().cancun_time = spec.deneb_fork_epoch.map(|epoch| {
-            genesis_time
-                + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+            spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                .expect("fork time fits in u64")
         });
         mock.server.execution_block_generator().prague_time =
             spec.electra_fork_epoch.map(|epoch| {
-                genesis_time
-                    + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+                spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                    .expect("fork time fits in u64")
             });
         mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
-            genesis_time
-                + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+            spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                .expect("fork time fits in u64")
         });
         mock.server.execution_block_generator().amsterdam_time =
             spec.gloas_fork_epoch.map(|epoch| {
-                genesis_time
-                    + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+                spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                    .expect("fork time fits in u64")
             });
 
         self
@@ -652,6 +650,12 @@ where
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
+        self
+    }
+
+    /// Run with this Gloas builder service.
+    pub fn builders(mut self, builders: Arc<builder_client::Builders<E>>) -> Self {
+        self.builders = Some(builders);
         self
     }
 
@@ -721,6 +725,7 @@ where
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
             .proof_engine(self.proof_engine)
+            .builders(self.builders)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
@@ -746,7 +751,7 @@ where
             builder.slot_clock(testing_slot_clock)
         } else if builder.get_slot_clock().is_none() {
             builder
-                .testing_slot_clock(spec.get_slot_duration())
+                .testing_slot_clock()
                 .expect("should configure testing slot clock")
         } else {
             builder
@@ -773,28 +778,28 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
     task_executor: TaskExecutor,
 ) -> MockExecutionLayer<E> {
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let cancun_time = spec.deneb_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let prague_time = spec.electra_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let amsterdam_time = spec.gloas_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let heze_time = spec.heze_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
 
     let kzg = get_kzg(&spec);
@@ -882,6 +887,38 @@ fn pack_payload_attestation_vote(
     }
 
     packs.pop().flatten()
+}
+
+/// Aggregation bits pooled for exactly `data`. Bits rather than a pool count, because aggregation
+/// on insert means a second attester voting the same `data` sets a bit in the existing aggregate
+/// instead of adding a new one.
+pub fn pooled_payload_attestation_bits<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    data: &PayloadAttestationData,
+) -> usize {
+    chain
+        .op_pool
+        .get_all_payload_attestations(|pooled| pooled == data)
+        .iter()
+        .map(|attestation| attestation.aggregation_bits.num_set_bits())
+        .sum()
+}
+
+/// Number of PTC positions held by `validator_index`, which is how many bits its message sets.
+pub fn ptc_seats<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    slot: Slot,
+    validator_index: u64,
+) -> usize {
+    chain
+        .head_snapshot()
+        .beacon_state
+        .get_ptc(slot, &chain.spec)
+        .expect("should get PTC")
+        .0
+        .iter()
+        .filter(|index| **index as u64 == validator_index)
+        .count()
 }
 
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
@@ -1734,25 +1771,33 @@ where
     /// Only works for a builder registered from `validator_keypairs[builder_index]`.
     pub fn sign_payload_bid(
         &self,
-        bid: ExecutionPayloadBidGloas<E>,
+        bid: ExecutionPayloadBid<E>,
         state: &BeaconState<E>,
     ) -> Arc<SignedExecutionPayloadBid<E>> {
         let domain = self.spec.get_domain(
-            bid.slot.epoch(E::slots_per_epoch()),
+            bid.slot().epoch(E::slots_per_epoch()),
             Domain::BeaconBuilder,
             &state.fork(),
             state.genesis_validators_root(),
         );
-        let signature = self.validator_keypairs[bid.builder_index as usize]
+        let signature = self.validator_keypairs[bid.builder_index() as usize]
             .sk
-            .sign(ExecutionPayloadBidRef::Gloas(&bid).signing_root(domain));
+            .sign(bid.signing_root(domain));
 
-        Arc::new(SignedExecutionPayloadBid::Gloas(
-            SignedExecutionPayloadBidGloas {
-                message: bid,
-                signature,
-            },
-        ))
+        Arc::new(match bid {
+            ExecutionPayloadBid::Gloas(message) => {
+                SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                    message,
+                    signature,
+                })
+            }
+            ExecutionPayloadBid::Heze(message) => {
+                SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                    message,
+                    signature,
+                })
+            }
+        })
     }
 
     /// Sign a beacon block using the proposer's key.
@@ -1804,7 +1849,7 @@ where
             state_root: Hash256::zero(),
             body: BeaconBlockBodyBellatrix {
                 randao_reveal,
-                eth1_data: state.eth1_data().cloned().unwrap_or_default(),
+                eth1_data: state.eth1_data().unwrap().clone(),
                 graffiti: Graffiti::default(),
                 proposer_slashings: VariableList::empty(),
                 attester_slashings: VariableList::empty(),
@@ -3261,13 +3306,9 @@ where
         let deposit_data_list = VariableList::<_, U4294967296>::try_from(leaves.clone()).unwrap();
 
         // Setting the deposit_root to be the tree_hash_root of the VarList
-        if let Ok(eth1_data) = state.eth1_data_mut() {
-            eth1_data.deposit_root = deposit_data_list.tree_hash_root();
-            eth1_data.deposit_count = num_deposits as u64;
-        }
-        if let Ok(eth1_deposit_index) = state.eth1_deposit_index_mut() {
-            *eth1_deposit_index = 0;
-        }
+        state.eth1_data_mut().unwrap().deposit_root = deposit_data_list.tree_hash_root();
+        state.eth1_data_mut().unwrap().deposit_count = num_deposits as u64;
+        *state.eth1_deposit_index_mut().unwrap() = 0;
 
         // Building the merkle tree used for generating proofs
         let tree = MerkleTree::create(&leaves[..], self.spec.deposit_contract_tree_depth as usize);
@@ -3441,20 +3482,44 @@ where
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
-        let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &signed_envelope.message.payload,
-            versioned_hashes,
-            parent_beacon_block_root: block.message().parent_root(),
-            execution_requests: &signed_envelope.message.execution_requests,
-        });
+        let request = if self
+            .spec
+            .fork_name_at_slot::<E>(block.slot())
+            .heze_enabled()
+        {
+            NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                execution_payload: &signed_envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: block.message().parent_root(),
+                execution_requests: &signed_envelope.message.execution_requests,
+                inclusion_list_transactions: self.chain.payload_inclusion_list_transactions(
+                    block.parent_root(),
+                    block.slot().saturating_sub(1_u64),
+                ),
+            })
+        } else {
+            NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+                execution_payload: &signed_envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: block.message().parent_root(),
+                execution_requests: &signed_envelope.message.execution_requests,
+            })
+        };
 
-        self.chain
+        let payload_status = self
+            .chain
             .execution_layer
             .as_ref()
             .expect("harness should have execution layer")
             .notify_new_payload(request)
             .await
             .expect("newPayload should succeed");
+        let inclusion_list_satisfied = match payload_status {
+            execution_layer::PayloadStatus::Valid {
+                inclusion_list_satisfied,
+            } => inclusion_list_satisfied.unwrap_or(true),
+            _ => true,
+        };
 
         // Store the envelope and the data columns derived from the block.
         //
@@ -3501,6 +3566,7 @@ where
                 block_root,
                 PayloadVerificationStatus::Verified,
                 payload_block_hash,
+                inclusion_list_satisfied,
             )
             .expect("should update fork choice with envelope");
 

@@ -692,7 +692,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
-                    sleep(duties_service.slot_clock.slot_duration()).await;
+                    sleep(duties_service.slot_clock.current_slot_duration()).await;
                 }
             }
         },
@@ -711,7 +711,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
-                    sleep(duties_service.slot_clock.slot_duration()).await;
+                    sleep(duties_service.slot_clock.current_slot_duration()).await;
                     continue;
                 }
 
@@ -744,7 +744,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
-                    sleep(duties_service.slot_clock.slot_duration()).await;
+                    sleep(duties_service.slot_clock.current_slot_duration()).await;
                     continue;
                 }
 
@@ -780,7 +780,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
-                    sleep(duties_service.slot_clock.slot_duration()).await;
+                    sleep(duties_service.slot_clock.current_slot_duration()).await;
                     continue;
                 }
             }
@@ -798,7 +798,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                     // Check if we've reached the Gloas fork epoch before polling
                     let Some(current_slot) = duties_service.slot_clock.now() else {
                         // Unable to read slot clock, sleep and try again
-                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        sleep(duties_service.slot_clock.current_slot_duration()).await;
                         continue;
                     };
 
@@ -813,7 +813,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
                             sleep(duration).await;
                         } else {
-                            sleep(duties_service.slot_clock.slot_duration()).await;
+                            sleep(duties_service.slot_clock.current_slot_duration()).await;
                         }
                         continue;
                     }
@@ -841,7 +841,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                     } else {
                         // Just sleep for one slot if we are unable to read the system clock, this gives
                         // us an opportunity for the clock to eventually come good.
-                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        sleep(duties_service.slot_clock.current_slot_duration()).await;
                         continue;
                     }
                 }
@@ -859,7 +859,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                 loop {
                     let Some(current_slot) = duties_service.slot_clock.now() else {
                         // Sleep for one slot if we are unable to read from the system clock
-                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        sleep(duties_service.slot_clock.current_slot_duration()).await;
                         continue;
                     };
 
@@ -874,7 +874,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
                             sleep(duration).await;
                         } else {
-                            sleep(duties_service.slot_clock.slot_duration()).await;
+                            sleep(duties_service.slot_clock.current_slot_duration()).await;
                         }
                         continue;
                     }
@@ -897,7 +897,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         sleep(duration).await;
                     } else {
                         // Sleep for one slot if we are unable to read from the system clock
-                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        sleep(duties_service.slot_clock.current_slot_duration()).await;
                     }
                 }
             },
@@ -908,7 +908,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
 /// Iterate through all the voting pubkeys in the `ValidatorStore` and attempt to learn any unknown
 /// validator indices.
-async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
+pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
 ) {
     let _timer = validator_metrics::start_timer_vec(
@@ -932,7 +932,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
             .is_some();
 
         if !is_known {
-            let current_slot_opt = duties_service.slot_clock.now();
+            let current_slot_opt = duties_service.slot_clock.now_or_genesis();
 
             if let Some(current_slot) = current_slot_opt {
                 let is_first_slot_of_epoch = current_slot % S::E::slots_per_epoch() == 0;
@@ -1704,7 +1704,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
         } else {
             // Just sleep for one slot if we are unable to read the system clock, this gives
             // us an opportunity for the clock to eventually come good.
-            sleep(duties_service.slot_clock.slot_duration()).await;
+            sleep(duties_service.slot_clock.current_slot_duration()).await;
         }
     }
 }
@@ -1750,7 +1750,7 @@ async fn fill_in_selection_proofs_selections_endpoint<
                     // If fails, retry at the next slot.
                     let duration_to_next_slot = slot_clock
                         .duration_to_next_slot()
-                        .unwrap_or_else(|| slot_clock.slot_duration());
+                        .unwrap_or_else(|| slot_clock.current_slot_duration());
                     sleep(duration_to_next_slot).await;
                     continue;
                 }
@@ -1813,7 +1813,7 @@ async fn fill_in_selection_proofs_selections_endpoint<
         // Wait until the next epoch such that the next epoch becomes the current epoch
         let duration_to_next_epoch = slot_clock
             .duration_to_slot(epoch_start_slot)
-            .unwrap_or_else(|| slot_clock.slot_duration());
+            .unwrap_or_else(|| slot_clock.current_slot_duration());
         sleep(duration_to_next_epoch).await;
     }
 }

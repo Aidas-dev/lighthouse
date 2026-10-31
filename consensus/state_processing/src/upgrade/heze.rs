@@ -23,6 +23,13 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_gloas_mut()?;
+    // EIP-8015 may only discard the legacy deposit fields once EIP-6110 has finalized.
+    if pre.eth1_deposit_index != pre.deposit_requests_start_index {
+        return Err(Error::LegacyDepositMigrationIncomplete {
+            deposit_index: pre.eth1_deposit_index,
+            deposit_requests_start_index: pre.deposit_requests_start_index,
+        });
+    }
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //

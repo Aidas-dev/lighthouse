@@ -131,6 +131,11 @@ fn progressive_block_body_errors_propagate() {
                 ]),
                 Err(BeaconStateError::SszTypesError(_))
             ));
+        } else {
+            assert!(matches!(
+                body.deposits_push(test_arbitrary_instance()),
+                Err(BeaconStateError::IncorrectStateVariant)
+            ));
         }
 
         for _ in 0..<E as EthSpec>::MaxProposerSlashings::to_usize() {
@@ -152,12 +157,11 @@ fn progressive_block_body_errors_propagate() {
         ));
         if fork == ForkName::Gloas {
             assert_eq!(
-                block.body().deposits().len(),
+                block.body().deposits().unwrap().len(),
                 <E as EthSpec>::MaxDeposits::to_usize()
             );
         } else {
-            // `deposits` is absent for both Heze and EIP8321.
-            assert!(block.body().deposits().is_empty());
+            assert!(block.body().deposits().is_err());
         }
     }
 }

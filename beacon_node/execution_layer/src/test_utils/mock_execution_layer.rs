@@ -3,7 +3,6 @@ use alloy_primitives::B256 as H256;
 use fixed_bytes::FixedBytesExtended;
 use kzg::Kzg;
 use tempfile::NamedTempFile;
-use types::MainnetEthSpec;
 
 pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
@@ -14,7 +13,7 @@ pub struct MockExecutionLayer<E: EthSpec> {
 
 impl<E: EthSpec> MockExecutionLayer<E> {
     pub fn default_params(executor: TaskExecutor) -> Self {
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = E::default_spec();
         spec.terminal_block_hash = ExecutionBlockHash::zero();
         spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new(
@@ -294,7 +293,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             .notify_new_payload(payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(status, PayloadStatus::Valid { .. }));
 
         // Use junk values for slot/head-root to ensure there is no payload supplied.
         let slot = Slot::new(0);

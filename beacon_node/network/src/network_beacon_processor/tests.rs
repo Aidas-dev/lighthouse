@@ -11,21 +11,24 @@ use crate::{
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
-    test_spec,
+    pooled_payload_attestation_bits, ptc_seats, test_spec,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
+use bls::Signature;
 use enr::{self, CombinedKey};
 use itertools::Itertools;
 use libp2p::gossipsub::MessageAcceptance;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
-    MetaDataV3, PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
+    InclusionListsByIndicesRequest, MetaDataV3, PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerAction, PeerId, Response,
@@ -42,8 +45,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
-    Hash256, InclusionList, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    Hash256, InclusionList, InclusionListBits, PayloadAttestationData, PayloadAttestationMessage,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     SignedInclusionList, SignedRoot, SignedVoluntaryExit, SingleAttestation, Slot, Spec, SubnetId,
     data::BlobIdentifier,
 };
@@ -689,9 +692,9 @@ impl TestRig {
             .unwrap();
     }
 
-    /// Enqueue a valid payload attestation message for `next_block`, signed by the first
-    /// member of the PTC for its slot.
-    pub fn enqueue_next_block_payload_attestation(&self) {
+    /// A valid payload attestation message for `next_block`, signed by the first member of the
+    /// PTC for its slot.
+    pub fn make_next_block_payload_attestation(&self) -> PayloadAttestationMessage {
         let slot = self.next_block.slot();
         let beacon_block_root = self.next_block.canonical_root();
         let head = self.chain.canonical_head.cached_head();
@@ -718,16 +721,16 @@ impl TestRig {
             .sk
             .sign(data.signing_root(domain));
 
+        PayloadAttestationMessage {
+            validator_index,
+            data,
+            signature,
+        }
+    }
+
+    pub fn enqueue_payload_attestation(&self, message: PayloadAttestationMessage) {
         self.network_beacon_processor
-            .send_gossip_payload_attestation(
-                junk_message_id(),
-                junk_peer_id(),
-                Box::new(PayloadAttestationMessage {
-                    validator_index,
-                    data,
-                    signature,
-                }),
-            )
+            .send_gossip_payload_attestation(junk_message_id(), junk_peer_id(), Box::new(message))
             .unwrap();
     }
 
@@ -1152,7 +1155,7 @@ async fn data_column_reconstruction_at_deadline() {
         .unwrap();
 
     // We push the slot clock to 3 seconds into the slot, this is the deadline to trigger reconstruction.
-    let slot_duration = rig.chain.slot_clock.slot_duration().as_millis() as u64;
+    let slot_duration = rig.chain.slot_clock.current_slot_duration().as_millis() as u64;
     let reconstruction_deadline_millis =
         (slot_duration * RECONSTRUCTION_DEADLINE.0) / RECONSTRUCTION_DEADLINE.1;
     rig.chain
@@ -1673,16 +1676,18 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let message = rig.make_next_block_payload_attestation();
+    let bits_before = pooled_payload_attestation_bits(&rig.chain, &message.data);
+    let expected_bits = ptc_seats(&rig.chain, message.data.slot, message.validator_index);
 
-    rig.enqueue_next_block_payload_attestation();
+    rig.enqueue_payload_attestation(message.clone());
 
     rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 
@@ -1722,8 +1727,8 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
     rig.assert_event_journal_contains_ordered(&events).await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages + 1,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before + expected_bits,
         "Payload attestation should have been included."
     );
 
@@ -1781,16 +1786,17 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let message = rig.make_next_block_payload_attestation();
+    let bits_before = pooled_payload_attestation_bits(&rig.chain, &message.data);
 
-    rig.enqueue_next_block_payload_attestation();
+    rig.enqueue_payload_attestation(message.clone());
 
     rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 
@@ -1809,8 +1815,8 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
     .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 }
@@ -2288,7 +2294,7 @@ async fn test_backfill_sync_processing() {
                 WORKER_FREED,
                 NOTHING_TO_DO,
             ],
-            rig.chain.slot_clock.slot_duration(),
+            rig.chain.slot_clock.current_slot_duration(),
             false,
             false,
         )
@@ -2388,6 +2394,8 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     let mut spec = test_spec::<E>();
     spec.fulu_fork_epoch = Some(Epoch::new(1));
     spec.gloas_fork_epoch = Some(Epoch::new(2));
+    // This test covers the Fulu transition only, so Heze must not activate before it
+    spec.heze_fork_epoch = None;
 
     // This test focuses on Electra→Fulu blob counts (epoch 0 to 1). Build 62 blocks since no need for Gloas activation at slot 64.
     let mut rig = TestRig::new_parametric(TestRigParams {
@@ -2700,6 +2708,7 @@ async fn test_data_columns_by_range_skip_slot_at_fork_boundary() {
     let mut spec = test_spec::<E>();
     spec.shard_committee_period = 2;
     spec.gloas_fork_epoch = Some(Epoch::new(2));
+    spec.heze_fork_epoch = None;
 
     let gloas_fork_slot = Epoch::new(2).start_slot(E::slots_per_epoch());
 
@@ -3133,13 +3142,164 @@ async fn test_blocks_by_head_unknown_root() {
     }
 }
 
+fn signed_inclusion_list(
+    slot: Slot,
+    validator_index: u64,
+    dependent_root: Hash256,
+    transaction_byte: u8,
+) -> SignedInclusionList {
+    SignedInclusionList {
+        message: InclusionList {
+            slot,
+            validator_index,
+            dependent_root,
+            transactions: vec![vec![transaction_byte].try_into().unwrap()]
+                .try_into()
+                .unwrap(),
+        },
+        signature: Signature::empty(),
+    }
+}
+
+fn enqueue_inclusion_lists_by_indices_request(
+    rig: &TestRig,
+    slot: Slot,
+    dependent_root: Hash256,
+    positions: &[usize],
+) {
+    let mut indices = InclusionListBits::<E>::new();
+    for position in positions {
+        indices.set(*position, true).unwrap();
+    }
+    rig.network_beacon_processor
+        .send_inclusion_lists_by_indices_request(
+            PeerId::random(),
+            InboundRequestId::new_unchecked(42, 24),
+            InclusionListsByIndicesRequest {
+                slot,
+                dependent_root,
+                indices,
+            },
+        )
+        .unwrap();
+}
+
+async fn recv_inclusion_lists(rig: &mut TestRig) -> Vec<SignedInclusionList> {
+    let mut received = vec![];
+    while let Some(next) = rig.network_rx.recv().await {
+        match next {
+            NetworkMessage::SendResponse {
+                response: Response::InclusionListsByIndices(Some(il)),
+                ..
+            } => received.push(il.as_ref().clone()),
+            NetworkMessage::SendResponse {
+                response: Response::InclusionListsByIndices(None),
+                ..
+            } => break,
+            other => panic!("expected an inclusion list response, got {:?}", other),
+        }
+    }
+    received
+}
+
+// Only the inclusion lists at the requested committee positions are served.
+#[tokio::test]
+async fn test_inclusion_lists_by_indices_serves_only_requested_positions() {
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
+    let slot = rig.chain.slot().unwrap();
+    let anchor = rig
+        .chain
+        .block_root_at_slot(slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let key = rig.chain.inclusion_list_key(anchor, slot).unwrap();
+    let committee = rig.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
+
+    // Store one inclusion list per committee member. Validators repeat across positions when the
+    // slot has fewer than `INCLUSION_LIST_COMMITTEE_SIZE` members, and storing a second differing
+    // list for the same validator would flag it as an equivocator.
+    {
+        let mut store = rig.chain.inclusion_list_store.write();
+        for validator_index in committee.iter().collect::<HashSet<_>>() {
+            store.process_inclusion_list(GossipVerifiedInclusionList {
+                signed_inclusion_list: signed_inclusion_list(
+                    slot,
+                    *validator_index,
+                    dependent_root,
+                    0xaa,
+                ),
+                is_timely: true,
+            });
+        }
+    }
+
+    // Requesting no positions serves nothing, even though the store holds lists for this slot.
+    enqueue_inclusion_lists_by_indices_request(&rig, slot, dependent_root, &[]);
+    assert!(recv_inclusion_lists(&mut rig).await.is_empty());
+
+    enqueue_inclusion_lists_by_indices_request(&rig, slot, dependent_root, &[0]);
+    let received = recv_inclusion_lists(&mut rig).await;
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].message.validator_index, committee[0]);
+}
+
+// An unknown dependent root serves nothing, not another committee's lists.
+#[tokio::test]
+async fn test_inclusion_lists_by_indices_ignores_unknown_dependent_root() {
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
+    let slot = rig.chain.slot().unwrap();
+    let anchor = rig
+        .chain
+        .block_root_at_slot(slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let key = rig.chain.inclusion_list_key(anchor, slot).unwrap();
+    let committee = rig.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
+
+    rig.chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
+            is_timely: true,
+        });
+
+    enqueue_inclusion_lists_by_indices_request(&rig, slot, Hash256::repeat_byte(0xff), &[0]);
+
+    assert!(recv_inclusion_lists(&mut rig).await.is_empty());
+}
+
+// Slots below `minimum_request_slot` are answered with `ResourceUnavailable`.
+#[tokio::test]
+async fn test_inclusion_lists_by_indices_rejects_slots_outside_the_window() {
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
+    let slot = rig.chain.slot().unwrap();
+    let too_old = slot - (rig.chain.spec.min_slots_for_inclusion_lists_requests + 1);
+
+    enqueue_inclusion_lists_by_indices_request(&rig, too_old, Hash256::ZERO, &[0]);
+
+    match rig.network_rx.recv().await.expect("a network message") {
+        NetworkMessage::SendErrorResponse { error, .. } => {
+            assert_matches!(
+                error,
+                lighthouse_network::rpc::RpcErrorResponse::ResourceUnavailable
+            );
+        }
+        other => panic!("expected SendErrorResponse, got {:?}", other),
+    }
+}
+
 /// A signed inclusion list from the first committee member for the current slot.
 fn inclusion_list_for_current_slot(rig: &TestRig, tx: u8) -> SignedInclusionList {
     let slot = rig.chain.slot().unwrap();
-    let (committee, dependent_root) = rig
+    let key = rig
         .chain
-        .inclusion_list_committee(rig.chain.head_beacon_block_root(), slot)
+        .inclusion_list_key(rig.chain.head_beacon_block_root(), slot)
         .unwrap();
+    let committee = rig.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
     let validator_index = committee[0];
 
     let message = InclusionList {

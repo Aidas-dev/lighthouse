@@ -3254,7 +3254,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let Some(min_data_availability_boundary) = self
             .spec
-            .min_epoch_data_availability_boundary(min_current_epoch)
+            .min_epoch_data_availability_boundary::<E>(min_current_epoch)
         else {
             debug!("Deneb fork is disabled");
             return Ok(());
@@ -3360,9 +3360,17 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         let mut blobs_db_ops = vec![];
 
         // Iterate blocks backwards until we reach a block for which we've already pruned
-        // blobs/columns.
+        // blobs/columns, or the oldest block in the database (whose parent is not stored unless
+        // we have backfilled to genesis).
+        let oldest_block_slot = self.get_anchor_info().oldest_block_slot;
         let mut child_block: Option<SignedBlindedBeaconBlock<E>> = None;
-        for tuple in ParentRootBlockIterator::new(self, end_block_root) {
+        for tuple in
+            ParentRootBlockIterator::new(self, end_block_root).take_while_inclusive(|result| {
+                result
+                    .as_ref()
+                    .map_or(true, |(_, block)| block.slot() > oldest_block_slot)
+            })
+        {
             let (block_root, blinded_block) = tuple?;
             let slot = blinded_block.slot();
             let fork_name = blinded_block.fork_name_unchecked();
@@ -4068,7 +4076,7 @@ mod tests {
 
     #[test]
     fn payload_pruning_fast_path_skips_withheld_gloas_blocks() {
-        type E = MinimalEthSpec;
+        type E = Spec;
 
         let mut spec = E::default_spec();
         spec.gloas_fork_epoch = Some(Epoch::new(0));

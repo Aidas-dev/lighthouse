@@ -210,7 +210,7 @@ impl<E: EthSpec> PersistedOperationPool<E> {
             voluntary_exits,
             bls_to_execution_changes: RwLock::new(bls_to_execution_changes),
             randao_commitment_registrations: Default::default(),
-            payload_attestation_messages: Default::default(),
+            payload_attestations: Default::default(),
             reward_cache: Default::default(),
             _phantom: Default::default(),
         };

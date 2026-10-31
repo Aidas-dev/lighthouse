@@ -31,6 +31,7 @@ use bls::{Keypair, Signature, SignatureBytes};
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadStatus;
 use fork_choice::PayloadVerificationStatus;
+use fork_choice::ResetPayloadStatuses;
 use futures::StreamExt;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
@@ -256,15 +257,19 @@ fn make_light_client_update<E: EthSpec>(
             update.signature_slot = marker_slot;
             LightClientUpdate::Electra(update)
         }
-        ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
+        ForkName::Fulu => {
             let mut update = test_arbitrary_instance::<LightClientUpdateFulu<E>>();
             update.signature_slot = marker_slot;
             LightClientUpdate::Fulu(update)
         }
+        ForkName::Gloas | ForkName::Heze => {
+            let mut update = test_arbitrary_instance::<LightClientUpdateGloas<E>>();
+            update.signature_slot = marker_slot;
+            LightClientUpdate::Gloas(update)
+        }
     }
 }
 
-// TODO(EIP-7732) Extend to support gloas
 #[tokio::test]
 async fn light_client_bootstrap_test() {
     let spec = test_spec::<E>();
@@ -272,10 +277,6 @@ async fn light_client_bootstrap_test() {
         // No-op prior to Altair.
         return;
     };
-    // TODO(EIP-7732): Light client not yet implemented for Gloas.
-    if spec.is_gloas_scheduled() {
-        return;
-    }
 
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
@@ -315,6 +316,7 @@ async fn light_client_bootstrap_test() {
         LightClientBootstrap::Deneb(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Electra(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Fulu(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
+        LightClientBootstrap::Gloas(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
     };
 
     assert_eq!(
@@ -330,10 +332,6 @@ async fn light_client_updates_test() {
         // No-op prior to Altair.
         return;
     };
-    // TODO(EIP-7732): Light client not yet implemented for Gloas.
-    if spec.is_gloas_scheduled() {
-        return;
-    }
 
     let num_final_blocks = E::slots_per_epoch() * 2;
     let db_path = tempdir().unwrap();
@@ -404,10 +402,6 @@ async fn get_light_client_updates_crosses_256_period_boundary() {
     let spec = test_spec::<E>();
     if spec.altair_fork_epoch.is_none() {
         // No-op prior to Altair.
-        return;
-    }
-
-    if spec.is_gloas_scheduled() {
         return;
     }
 
@@ -1700,7 +1694,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
     // XXX: This is a really nasty way to do this, but we need better test facilities in
     // MockExecutionLayer to address this.
     let deposit_request: DepositRequest = DepositRequest {
-        index: pre_deposit_state.eth1_deposit_index().unwrap_or_default(),
+        index: pre_deposit_state.eth1_deposit_index().unwrap(),
         pubkey: validator_to_topup.pubkey,
         withdrawal_credentials: validator_to_topup.withdrawal_credentials,
         amount: 63_000_000_000,
@@ -2088,20 +2082,72 @@ async fn heze_block_production_across_boundary() {
     let harness = TestHarness::builder(E::default())
         .spec(spec.into())
         .keypairs(validators_keypairs)
+        .with_genesis_state_builder(|builder| {
+            builder
+                .set_alternating_eth1_withdrawal_credentials()
+                .set_deposit_requests_start_index(LOW_VALIDATOR_COUNT as u64)
+        })
         .fresh_disk_store(store)
         .mock_execution_layer()
         .build();
     let all_validators = harness.get_all_validators();
 
-    // Build through the first Heze epoch, ending at the first slot of the next epoch
-    let last_slot = (heze_fork_epoch + 1).start_slot(E::slots_per_epoch());
-    let slots: Vec<Slot> = (1..=last_slot.as_u64()).map(Into::into).collect();
+    // Stop in Gloas to verify the EIP-8015 activation condition.
+    let pre_heze_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) - 1;
+    let pre_heze_slots: Vec<Slot> = (1..=pre_heze_slot.as_u64()).map(Into::into).collect();
     let state = harness.get_current_state();
+    let (_, _, _, pre_heze_state) = harness
+        .add_attested_blocks_at_slots(state, &pre_heze_slots, &all_validators)
+        .await;
+    assert!(matches!(pre_heze_state, BeaconState::Gloas(_)));
+    assert_eq!(
+        pre_heze_state.eth1_deposit_index().unwrap(),
+        pre_heze_state.deposit_requests_start_index().unwrap()
+    );
+    let mut invalid_state = pre_heze_state.clone();
+    let request_start_index = invalid_state.deposit_requests_start_index().unwrap();
+    *invalid_state.deposit_requests_start_index_mut().unwrap() =
+        request_start_index.saturating_add(1);
+    assert!(matches!(
+        state_processing::upgrade::heze::upgrade_state_to_heze(
+            &mut invalid_state,
+            &harness.chain.spec
+        ),
+        Err(BeaconStateError::LegacyDepositMigrationIncomplete { .. })
+    ));
+
+    // Build through the first Heze epoch, ending at the first slot of the next epoch.
+    let last_slot = (heze_fork_epoch + 1).start_slot(E::slots_per_epoch());
+    let slots: Vec<Slot> = ((pre_heze_slot.as_u64() + 1)..=last_slot.as_u64())
+        .map(Into::into)
+        .collect();
     let (_, _, head_block_root, head_state) = harness
-        .add_attested_blocks_at_slots(state, &slots, &all_validators)
+        .add_attested_blocks_at_slots(pre_heze_state, &slots, &all_validators)
         .await;
 
     assert_eq!(head_state.current_epoch(), heze_fork_epoch + 1);
+    let state_json = serde_json::to_value(&head_state).unwrap();
+    for field in [
+        "eth1_data",
+        "eth1_data_votes",
+        "eth1_deposit_index",
+        "deposit_requests_start_index",
+    ] {
+        assert!(
+            state_json.get(field).is_none(),
+            "Heze state contains {field}"
+        );
+    }
+    assert_eq!(head_state.get_beacon_state_leaves().len(), 42);
+    let mut active_fields = [0u8; 32];
+    active_fields[..6].copy_from_slice(&[0xff, 0xf8, 0xff, 0xef, 0xff, 0x3f]);
+    assert_eq!(
+        head_state
+            .compute_current_sync_committee_proof()
+            .unwrap()
+            .last(),
+        Some(&Hash256::from(active_fields))
+    );
 
     let head_block_root: Hash256 = head_block_root.into();
     let head_block = harness
@@ -4224,11 +4270,8 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     let store = get_store_generic(&temp2, store_config, spec.clone());
 
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        spec.get_slot_duration(),
-    );
+    let slot_clock =
+        TestingSlotClock::from_spec::<E>(Duration::from_secs(harness.chain.genesis_time), &spec);
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {
@@ -4463,11 +4506,8 @@ async fn weak_subjectivity_sync_test(
 
     // Initialise a new beacon chain from the finalized checkpoint.
     // The slot clock must be set to a time ahead of the checkpoint state.
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        spec.get_slot_duration(),
-    );
+    let slot_clock =
+        TestingSlotClock::from_spec::<E>(Duration::from_secs(harness.chain.genesis_time), &spec);
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {
@@ -4584,6 +4624,7 @@ async fn weak_subjectivity_sync_test(
                 wss_block_root,
                 PayloadVerificationStatus::Verified,
                 ExecutionBlockHash::zero(),
+                true,
             )
             .unwrap();
     }
@@ -4664,6 +4705,7 @@ async fn weak_subjectivity_sync_test(
                     block_root,
                     PayloadVerificationStatus::Verified,
                     ExecutionBlockHash::zero(),
+                    true,
                 )
                 .unwrap();
         }
@@ -4995,7 +5037,11 @@ async fn weak_subjectivity_sync_test(
 // the same code paths that custody backfill sync imports data columns
 #[tokio::test]
 async fn test_import_historical_data_columns_batch() {
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let fork_name = fork_name_from_env().unwrap_or(ForkName::Fulu);
+    if !fork_name.fulu_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
     let start_slot = Epoch::new(0).start_slot(E::slots_per_epoch()) + 1;
@@ -5035,6 +5081,10 @@ async fn test_import_historical_data_columns_batch() {
     }
 
     assert!(!data_columns_list.is_empty());
+    let block_roots_with_columns = data_columns_list
+        .iter()
+        .map(|data_column| data_column.block_root())
+        .collect::<HashSet<_>>();
 
     harness
         .extend_chain(
@@ -5084,15 +5134,7 @@ async fn test_import_historical_data_columns_batch() {
     // Assert that data columns now exist for epoch 0
     for block_root_and_slot in block_root_and_slot_iter {
         let (block_root, slot) = block_root_and_slot.unwrap();
-        if !harness
-            .get_block(block_root.into())
-            .unwrap()
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .unwrap()
-            .is_empty()
-        {
+        if block_roots_with_columns.contains(&block_root) {
             let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
             let data_columns = harness
                 .chain
@@ -5102,6 +5144,80 @@ async fn test_import_historical_data_columns_batch() {
             assert!(data_columns.is_some())
         };
     }
+}
+
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_invalid_kzg() {
+    let fork_name = fork_name_from_env().unwrap_or(ForkName::Fulu);
+    if !fork_name.fulu_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Epoch::new(0).start_slot(E::slots_per_epoch()) + 1;
+    let end_slot = Epoch::new(0).end_slot(E::slots_per_epoch());
+    let cgc = 128;
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let mut data_columns_list = vec![];
+    for block_root_and_slot in harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap()
+    {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
+        data_columns_list.extend(data_columns.unwrap_or_default());
+    }
+    assert!(!data_columns_list.is_empty());
+
+    let mut invalid_column = (*data_columns_list[0]).clone();
+    match &mut invalid_column {
+        DataColumnSidecar::Fulu(column) => column.column.get_mut(0).unwrap()[0] = 0x42,
+        DataColumnSidecar::Gloas(column) => column.column.get_mut(0).unwrap()[0] = 0x42,
+    }
+    data_columns_list[0] = Arc::new(invalid_column);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::InvalidKzg { .. }
+    ));
 }
 
 // This should verify that a data column sidecar containing mismatched block roots should fail to be imported.
@@ -5710,9 +5826,6 @@ async fn light_client_update_schema_v30_migration() {
         // No-op prior to Altair.
         return;
     }
-    if spec.is_gloas_scheduled() {
-        return;
-    }
 
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
@@ -6252,8 +6365,50 @@ async fn payload_envelope_schema_v31_downgrade_before_gloas() {
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
 
-    migrate_schema::<DiskHarnessType<E>>(store, SchemaVersion(31), SchemaVersion(30))
+    migrate_schema::<DiskHarnessType<E>>(store, SchemaVersion(32), SchemaVersion(30))
         .expect("schema downgrade before Gloas should succeed");
+}
+
+#[tokio::test]
+async fn proto_node_schema_v33_migration() {
+    let db_path = tempdir().unwrap();
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness.extend_to_slot(Slot::new(4)).await;
+
+    // The downgrade drops the inclusion list verdict, so the upgrade records it as satisfied.
+    let head_root = harness.head_block_root();
+    {
+        let mut fork_choice = harness.chain.canonical_head.fork_choice_write_lock();
+        let proto_array = fork_choice.proto_array_mut().core_proto_array_mut();
+        let index = *proto_array.indices.get(&head_root).unwrap();
+        proto_array.nodes[index]
+            .as_v33_mut()
+            .unwrap()
+            .payload_inclusion_list_satisfied = false;
+    }
+    harness.chain.persist_fork_choice().unwrap();
+
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(33), SchemaVersion(32))
+        .expect("schema downgrade to v32 should succeed");
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(32), SchemaVersion(33))
+        .expect("schema upgrade to v33 should succeed");
+
+    let fork_choice = BeaconChain::<DiskHarnessType<E>>::load_fork_choice(
+        store,
+        ResetPayloadStatuses::OnlyWithInvalidPayload,
+        &spec,
+    )
+    .unwrap()
+    .unwrap();
+    let nodes = &fork_choice.proto_array().core_proto_array().nodes;
+    assert!(nodes.iter().all(|node| node.as_v33().is_ok()));
+    assert!(
+        nodes
+            .iter()
+            .all(|node| node.payload_inclusion_list_satisfied() == Ok(true))
+    );
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.
@@ -6623,6 +6778,73 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     );
     check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
     check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+}
+
+/// Regression test for https://github.com/sigp/lighthouse/issues/10442.
+///
+/// On a checkpoint synced node that has data stored for every block back to the oldest block,
+/// pruning must stop at the oldest block rather than trying to load its (missing) parent.
+#[tokio::test]
+async fn prune_blobs_stops_at_oldest_block() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let spec = store.get_chain_spec().clone();
+
+    if spec.deneb_fork_epoch.is_none() {
+        // No-op prior to Deneb.
+        return;
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 8) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Simulate checkpoint sync with backfill to `oldest_block_slot` by deleting the blocks prior
+    // to it (except genesis).
+    let oldest_block_slot = Epoch::new(1).start_slot(E::slots_per_epoch());
+    let deleted_block_roots = harness
+        .chain
+        .forwards_iter_block_roots_until(Slot::new(1), oldest_block_slot - 1)
+        .unwrap()
+        .map(|result| result.unwrap().0)
+        .collect::<Vec<_>>();
+    for block_root in &deleted_block_roots {
+        store.delete_block(block_root).unwrap();
+    }
+    let anchor = store.get_anchor_info();
+    store
+        .compare_and_set_anchor_info_with_write(
+            anchor.clone(),
+            store::AnchorInfo {
+                oldest_block_slot,
+                oldest_block_parent: *deleted_block_roots.last().unwrap(),
+                ..anchor
+            },
+        )
+        .unwrap();
+
+    let data_availability_boundary = Epoch::new(4);
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    let oldest_data_slot = store.get_data_info().oldest_data_slot;
+    assert_eq!(
+        oldest_data_slot,
+        data_availability_boundary.start_slot(E::slots_per_epoch())
+    );
+    let check_data_existence: fn(&TestHarness, Slot, Slot, bool) = if spec.is_peer_das_scheduled() {
+        check_data_column_existence
+    } else {
+        check_blob_existence
+    };
+    check_data_existence(&harness, oldest_block_slot, oldest_data_slot - 1, false);
+    check_data_existence(&harness, oldest_data_slot, harness.head_slot(), true);
 }
 
 /// Check that there are blob sidecars (or not) at every slot in the range.
@@ -7429,7 +7651,11 @@ async fn test_safely_backfill_data_column_custody_info() {
 
     let epoch_before_increase = Epoch::new(start_epochs);
     let effective_delay_slots = CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS
-        / harness.chain.spec.get_slot_duration().as_secs();
+        / (harness
+            .chain
+            .spec
+            .get_slot_duration_ms(epoch_before_increase)
+            / 1000);
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
@@ -7990,7 +8216,6 @@ async fn bellatrix_produce_and_store_payloads() {
     use beacon_chain::test_utils::{
         DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, InteropGenesisBuilder,
     };
-    use safe_arith::SafeArith;
     use state_processing::per_block_processing::is_merge_transition_complete;
     use tree_hash::TreeHash;
 
@@ -8081,13 +8306,9 @@ async fn bellatrix_produce_and_store_payloads() {
             .build_caches(&harness.spec)
             .expect("should build caches");
 
-        let timestamp = pre_state
-            .genesis_time()
-            .safe_add(
-                slot.as_u64()
-                    .safe_mul(harness.spec.get_slot_duration().as_secs())
-                    .unwrap(),
-            )
+        let timestamp = harness
+            .spec
+            .compute_time_at_slot::<E>(pre_state.genesis_time(), slot)
             .unwrap();
         let prev_randao = *pre_state.get_randao_mix(pre_state.current_epoch()).unwrap();
 

@@ -16,6 +16,7 @@ mod builders;
 mod caches;
 mod custody;
 mod database;
+mod inclusion_list_duties;
 mod light_client;
 mod metrics;
 mod peer;
@@ -67,7 +68,8 @@ use directory::DEFAULT_ROOT_DIR;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    ForkChoiceNode, JsonClientVersion, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    version_with_commit,
 };
 use eth2::{
     BUILDER_URL_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
@@ -1584,6 +1586,10 @@ pub async fn serve<T: BeaconChainTypes>(
     let post_beacon_pool_sync_committees =
         post_beacon_pool_sync_committees(&network_tx_filter, &beacon_pool_path);
 
+    // GET beacon/pool/payload_attestations
+    let get_beacon_pool_payload_attestations =
+        get_beacon_pool_payload_attestations(&beacon_pool_path);
+
     // POST beacon/pool/payload_attestations
     let post_beacon_pool_payload_attestations = post_beacon_pool_payload_attestations(
         &network_tx_filter,
@@ -2010,6 +2016,27 @@ pub async fn serve<T: BeaconChainTypes>(
         );
 
     /*
+     * inclusion lists
+     */
+
+    // POST validator/inclusion_list (JSON)
+    let post_validator_inclusion_list = post_validator_inclusion_list(
+        eth_v1.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
+    // POST validator/inclusion_list (SSZ)
+    let post_validator_inclusion_list_ssz = post_validator_inclusion_list_ssz(
+        eth_v1.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+    /*
      * config
      */
 
@@ -2373,6 +2400,43 @@ pub async fn serve<T: BeaconChainTypes>(
             .into_response()
         });
 
+    // GET /v2/node/version
+    let get_node_version_v2 = eth_v2
+        .clone()
+        .and(warp::path("node"))
+        .and(warp::path("version"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .then(|chain: Arc<BeaconChain<T>>| async move {
+            let execution_client = if let Some(execution_layer) = &chain.execution_layer {
+                match execution_layer.get_engine_version(None).await {
+                    Ok(versions) => versions.into_iter().next(),
+                    Err(e) => {
+                        warn!(
+                            error = ?e,
+                            "Unable to fetch execution client info for /v2/node/version"
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            warp::reply::json(&api_types::GenericResponse::from(
+                api_types::VersionDataV2 {
+                    beacon_node: version_with_commit(),
+                    execution_client: execution_client.map(|ec| JsonClientVersion {
+                        code: ec.code.to_string(),
+                        name: ec.name,
+                        version: ec.version,
+                        commit: format!("0x{}", ec.commit),
+                    }),
+                },
+            ))
+            .into_response()
+        });
+
     // GET node/syncing
     let get_node_syncing = eth_v1
         .clone()
@@ -2697,6 +2761,14 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // GET validator/inclusion_list?slot
+    let get_validator_inclusion_list = get_validator_inclusion_list(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // GET validator/aggregate_attestation?attestation_data_root,slot
     let get_validator_aggregate_attestation = get_validator_aggregate_attestation(
         any_version.clone(),
@@ -2715,6 +2787,14 @@ pub async fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/ptc/{epoch}
     let post_validator_duties_ptc = post_validator_duties_ptc(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
+    // POST validator/duties/inclusion_list/{epoch}
+    let post_validator_duties_inclusion_list = post_validator_duties_inclusion_list(
         eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -3522,6 +3602,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_pool_proposer_slashings)
                 .uor(get_beacon_pool_voluntary_exits)
                 .uor(get_beacon_pool_bls_to_execution_changes)
+                .uor(get_beacon_pool_payload_attestations)
                 .uor(get_beacon_rewards_blocks)
                 .uor(get_config_fork_schedule)
                 .uor(get_config_spec)
@@ -3532,6 +3613,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_debug_fork_choice)
                 .uor(get_node_identity)
                 .uor(get_node_version)
+                .uor(get_node_version_v2)
                 .uor(get_node_syncing)
                 .uor(get_node_health)
                 .uor(get_node_peers_by_id)
@@ -3543,6 +3625,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_validator_execution_payload_envelopes)
                 .uor(get_validator_attestation_data)
                 .uor(get_validator_payload_attestation_data)
+                .uor(get_validator_inclusion_list)
                 .uor(get_validator_aggregate_attestation)
                 .uor(get_validator_sync_committee_contribution)
                 .uor(get_lighthouse_health)
@@ -3582,7 +3665,8 @@ pub async fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_execution_payload_bids_ssz)
                             .uor(post_beacon_pool_payload_attestations_ssz)
                             .uor(post_beacon_execution_proofs)
-                            .uor(post_validator_proposer_preferences_ssz),
+                            .uor(post_validator_proposer_preferences_ssz)
+                            .uor(post_validator_inclusion_list_ssz),
                     )
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
@@ -3597,6 +3681,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_beacon_pool_randao_commitment_registrations)
                     .uor(post_validator_proposer_preferences)
+                    .uor(post_validator_inclusion_list)
                     .uor(post_beacon_execution_payload_envelopes)
                     .uor(post_beacon_execution_payload_bids)
                     .uor(post_beacon_state_validators)
@@ -3607,6 +3692,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_rewards_sync_committee)
                     .uor(post_validator_duties_attester)
                     .uor(post_validator_duties_ptc)
+                    .uor(post_validator_duties_inclusion_list)
                     .uor(post_validator_duties_sync)
                     .uor(post_validator_aggregate_and_proofs)
                     .uor(post_validator_contribution_and_proofs)

@@ -1,30 +1,40 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::pending_payload_envelopes::PendingEnvelopeData;
 use beacon_chain::{
     ChainConfig,
     chain_config::DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
-        fork_name_from_env, test_spec,
+        fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
     },
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::DepositContractData;
 use eth2::types::ProduceBlockV3Response;
-use execution_layer::{ForkchoiceState, PayloadAttributes};
+use eth2::types::{
+    BroadcastValidation, PublishBlockRequest, SignedExecutionPayloadEnvelopeContents,
+};
+use execution_layer::{ForkchoiceState, PayloadAttributes, test_utils::static_valid_tx};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
+use lighthouse_network::PubsubMessage;
+use lighthouse_network::types::SyncState;
+use network::NetworkMessage;
 use parking_lot::Mutex;
+use reqwest::StatusCode;
+use serde_json::json;
 use slot_clock::SlotClock;
+use ssz_types::ProgressiveVariableList;
 use state_processing::{
     per_block_processing::get_expected_withdrawals, state_advance::complete_state_advance,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, ProposerPreparationData,
-    Slot, Spec,
+    Address, BlobsList, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
+    ProgressiveTransactions, ProposerPreparationData, Slot, Spec,
 };
 
 type E = Spec;
@@ -407,7 +417,7 @@ pub async fn proposer_boost_re_org_test(
     // Scale the lookahead with the slot duration, or it lands before the block B reveal at
     // half way through the slot and we measure the wrong fork choice update.
     let chain_config = ChainConfig {
-        prepare_payload_lookahead: spec.get_slot_duration()
+        prepare_payload_lookahead: spec.genesis_slot_duration()
             / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
         ..Default::default()
     };
@@ -550,7 +560,7 @@ pub async fn proposer_boost_re_org_test(
     let state_b_root = state_b.canonical_root().unwrap();
     let block_b_root = block_b.0.canonical_root();
 
-    let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
+    let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.current_slot_duration() / 2;
     slot_clock.set_current_time(obs_time);
     harness.chain.block_times_cache.write().set_time_observed(
         block_b_root,
@@ -617,7 +627,7 @@ pub async fn proposer_boost_re_org_test(
         .into();
 
     if let Some(proposal_delay) = proposal_delay {
-        assert!(proposal_delay < slot_clock.slot_duration());
+        assert!(proposal_delay < slot_clock.slot_duration_at(slot_c));
         slot_clock.set_current_time(slot_clock.start_of(slot_c).unwrap() + proposal_delay);
         assert_eq!(harness.get_current_slot(), slot_c);
     }
@@ -991,7 +1001,7 @@ async fn proposer_duties_with_gossip_tolerance() {
     harness
         .chain
         .slot_clock
-        .advance_time(spec.get_slot_duration() - spec.maximum_gossip_clock_disparity());
+        .advance_time(spec.genesis_slot_duration() - spec.maximum_gossip_clock_disparity());
     assert_eq!(
         harness
             .chain
@@ -1098,7 +1108,7 @@ async fn proposer_duties_v2_with_gossip_tolerance() {
     harness
         .chain
         .slot_clock
-        .advance_time(spec.get_slot_duration() - spec.maximum_gossip_clock_disparity());
+        .advance_time(spec.genesis_slot_duration() - spec.maximum_gossip_clock_disparity());
     assert_eq!(
         harness
             .chain
@@ -1168,6 +1178,50 @@ async fn proposer_duties_v2_with_gossip_tolerance() {
     assert_eq!(
         proposer_duties_tolerant_current_epoch,
         proposer_duties_current_epoch
+    );
+}
+
+// Test that proposer preparations sent before genesis set the custody group count from epoch 0.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prepare_beacon_proposer_before_genesis_sets_cgc_from_genesis() {
+    let spec = test_spec::<E>();
+
+    // Skip pre-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
+
+    let validator_count = 64;
+
+    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let harness = &tester.harness;
+    let chain = &harness.chain;
+    let custody_context = &chain.custody_context;
+
+    chain
+        .slot_clock
+        .set_current_time(*chain.slot_clock.genesis_duration() - Duration::from_secs(10));
+    assert_eq!(chain.slot_clock.is_prior_to_genesis(), Some(true));
+
+    let preparation_data = (0..validator_count as u64)
+        .map(|validator_index| ProposerPreparationData {
+            validator_index,
+            fee_recipient: Address::repeat_byte(1),
+        })
+        .collect::<Vec<_>>();
+    tester
+        .client
+        .post_validator_prepare_beacon_proposer(&preparation_data)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        custody_context.custody_group_count_at_epoch(Epoch::new(0)),
+        validator_count as u64
+    );
+    assert_eq!(
+        chain.earliest_custodied_data_column_epoch(),
+        Some(Epoch::new(0))
     );
 }
 
@@ -1304,4 +1358,398 @@ async fn lighthouse_custody_info() {
         info.custody_columns.len(),
         info.custody_group_count as usize
     );
+}
+
+/// Publishes a Gloas block via the HTTP API without blob data and returns whether the node asked
+/// the network service to retrieve the block's columns. With `self_built`, the blobs of the
+/// block's payload are cached as if this node had built it.
+async fn http_published_gloas_block_fetches_columns(
+    validation_level: BroadcastValidation,
+    self_built: bool,
+) -> bool {
+    let validator_count = 64;
+    let mut tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    let state = harness.get_current_state();
+    let ((block, _), envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let block_root = block.canonical_root();
+
+    if self_built {
+        let envelope = envelope.expect("Gloas block should produce an envelope");
+        harness
+            .chain
+            .pending_payload_envelopes
+            .write()
+            .insert(PendingEnvelopeData {
+                envelope: Arc::new(envelope.message),
+                blobs: Some(Arc::new(BlobsList::<E>::default())),
+            });
+    }
+
+    tester
+        .client
+        .post_beacon_blocks_v2(
+            &PublishBlockRequest::new(block, None),
+            Some(validation_level),
+        )
+        .await
+        .expect("block should be published");
+
+    std::iter::from_fn(|| tester.network_rx.network_recv.try_recv().ok()).any(|message| {
+        matches!(
+            message,
+            NetworkMessage::FetchBlockColumns { block_root: root, .. } if root == block_root
+        )
+    })
+}
+
+/// Later gossip copies of a block published via the HTTP API are ignored as duplicates, so
+/// publishing it must start column retrieval.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_published_gloas_block_fetches_columns_gossip() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+    assert!(http_published_gloas_block_fetches_columns(BroadcastValidation::Gossip, false).await);
+}
+
+/// With consensus validation, the block is only published once `process_block` has verified it.
+/// Column retrieval must start then too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_published_gloas_block_fetches_columns_consensus() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+    assert!(
+        http_published_gloas_block_fetches_columns(BroadcastValidation::Consensus, false).await
+    );
+}
+
+/// The envelope endpoint publishes the columns of a self-built payload from the cached blobs, so
+/// publishing the block must not retrieve them as well.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_published_self_built_gloas_block_skips_column_fetch() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+    assert!(!http_published_gloas_block_fetches_columns(BroadcastValidation::Gossip, true).await);
+}
+
+/// Columns retrieved from the EL are complete in the pending payload cache before their gradual
+/// publication. Building the same columns from the envelope's blobs marks them as seen, which makes
+/// that publication skip them, so the envelope endpoint must publish them itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn envelope_publishes_retrieved_columns_awaiting_publication() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+
+    let validator_count = 64;
+    let mut tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    let state = harness.get_current_state();
+    let ((block, _), envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let envelope = envelope.expect("Gloas block should produce an envelope");
+    let block_root = block.canonical_root();
+    harness
+        .process_block(slot, block_root, (block.clone(), None))
+        .await
+        .expect("block should be imported");
+
+    // Stand in for column retrieval from the EL, which caches the custody columns before
+    // publishing them.
+    let columns = generate_data_column_sidecars_from_block(&block, &harness.spec);
+    harness
+        .chain
+        .process_rpc_custody_columns(columns)
+        .await
+        .expect("custody columns should be accepted");
+    let custody_columns = harness
+        .chain
+        .pending_payload_cache
+        .cached_data_column_indexes(&block_root)
+        .expect("custody columns should be cached");
+    assert!(!custody_columns.is_empty());
+
+    let commitments = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas block should have a bid")
+        .message()
+        .blob_kzg_commitments()
+        .clone();
+    let blobs_bundle = harness
+        .execution_block_generator()
+        .blobs_bundles
+        .values()
+        .find(|bundle| bundle.commitments.iter().eq(commitments.iter()))
+        .cloned()
+        .expect("mock EL should hold the payload's blobs");
+    let contents = SignedExecutionPayloadEnvelopeContents {
+        signed_execution_payload_envelope: envelope,
+        kzg_proofs: blobs_bundle.proofs,
+        blobs: blobs_bundle.blobs,
+    };
+    tester
+        .client
+        .post_beacon_execution_payload_envelope_contents(
+            &contents,
+            harness.spec.fork_name_at_slot::<E>(slot),
+            None,
+        )
+        .await
+        .expect("envelope should be published");
+
+    let mut published_columns = HashSet::new();
+    while let Ok(message) = tester.network_rx.network_recv.try_recv() {
+        if let NetworkMessage::Publish { messages } = message {
+            for message in messages {
+                if let PubsubMessage::DataColumnSidecar(column) = message {
+                    published_columns.insert(*column.1.index());
+                }
+            }
+        }
+    }
+    for index in custody_columns {
+        assert!(
+            published_columns.contains(&index),
+            "custody column {index} should be published"
+        );
+    }
+}
+
+fn set_mock_inclusion_list(tester: &InteractiveTester<E>, transactions: ProgressiveTransactions) {
+    tester
+        .harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .execution_block_generator()
+        .set_inclusion_list(transactions);
+}
+
+// Test that the validator inclusion list endpoint returns the transactions provided by the EL for
+// the current slot.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    let transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::new(static_valid_tx::<E>().unwrap().to_vec()).unwrap(),
+    ])
+    .unwrap();
+    set_mock_inclusion_list(&tester, transactions.clone());
+
+    let slot = tester.harness.chain.slot().unwrap();
+    let response = tester
+        .client
+        .get_validator_inclusion_list(slot)
+        .await
+        .unwrap();
+    assert_eq!(response.data.transactions, transactions);
+}
+
+// Test that an empty inclusion list from the EL is returned as such.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_empty() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    set_mock_inclusion_list(&tester, ProgressiveTransactions::empty());
+
+    let slot = tester.harness.chain.slot().unwrap();
+    let response = tester
+        .client
+        .get_validator_inclusion_list(slot)
+        .await
+        .unwrap();
+    assert!(response.data.transactions.is_empty());
+}
+
+// Test that the validator inclusion list endpoint rejects requests for non-current slots.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_invalid_slot() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    // Advance to the first slot after genesis, so we can check the slot 0 of the fork
+    tester.harness.advance_slot();
+
+    let current_slot = tester.harness.chain.slot().unwrap();
+    for slot in [current_slot - 1, current_slot + 1] {
+        match tester.client.get_validator_inclusion_list(slot).await {
+            Ok(response) => panic!("query for slot {slot} should fail, got: {response:?}"),
+            Err(e) => assert_eq!(e.status(), Some(StatusCode::BAD_REQUEST)),
+        }
+    }
+}
+
+// Test that an inclusion list with a size over the spec's byte limit is reported as a server error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_oversized() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    let max = tester
+        .harness
+        .chain
+        .spec
+        .max_transactions_bytes_per_inclusion_list as usize;
+    set_mock_inclusion_list(
+        &tester,
+        ProgressiveTransactions::new(vec![
+            ProgressiveVariableList::new(vec![0xaa; max + 1]).unwrap(),
+        ])
+        .unwrap(),
+    );
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("oversized inclusion list should fail, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+// Test that an inclusion list containing an empty transaction triggers a server error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_empty_transaction() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    set_mock_inclusion_list(
+        &tester,
+        ProgressiveTransactions::new(vec![ProgressiveVariableList::empty()]).unwrap(),
+    );
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("empty transaction should fail, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+// Test that the validator inclusion list endpoint rejects a list containing a blob transaction
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_blob_transaction() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    // An EIP-4844 transaction is identified by its EIP-2718 type byte(`0x03`)
+    set_mock_inclusion_list(
+        &tester,
+        ProgressiveTransactions::new(vec![
+            ProgressiveVariableList::new(static_valid_tx::<E>().unwrap().to_vec()).unwrap(),
+            ProgressiveVariableList::new(vec![0x03, 0xaa]).unwrap(),
+        ])
+        .unwrap(),
+    );
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("blob transaction should fail, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+// Test that the validator inclusion list endpoint returns a server error when the EL call fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_el_failure() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    tester
+        .harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .push_preloaded_response(json!({
+            "id": 1,
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32000,
+                "message": "inclusion list unavailable"
+            }
+        }));
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("query should fail when the EL errors, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+// Test that the validator inclusion list endpoint is unavailable while the node is syncing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_while_syncing() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    // Simulate a long-range sync with the head beyond the sync tolerance.
+    let network_globals = tester.ctx.network_globals.as_ref().unwrap();
+    *network_globals.sync_state.write() = SyncState::SyncingFinalized {
+        start_slot: Slot::new(0),
+        target_slot: Slot::new(u64::MAX),
+    };
+    let head_slot = tester
+        .harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .head_slot();
+    let tolerance = tester.harness.chain.config.sync_tolerance_epochs * E::slots_per_epoch();
+    tester
+        .harness
+        .chain
+        .slot_clock
+        .set_slot(head_slot.as_u64() + tolerance + 1);
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("query should fail while syncing, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::SERVICE_UNAVAILABLE)),
+    }
 }

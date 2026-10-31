@@ -86,10 +86,14 @@ impl ValidatorRegistrations {
 
     /// Register a new validator index and updates the list of validators if required.
     /// Returns `Some((effective_epoch, new_cgc))` if the registration results in a CGC update.
+    ///
+    /// If `is_prior_to_genesis` is true, the CGC update is effective from epoch 0. No blocks exist
+    /// before genesis, so no block can be checked with the old CGC.
     pub(crate) fn register_validators<E: EthSpec>(
         &mut self,
         validators_and_balance: ValidatorsAndBalances,
         current_slot: Slot,
+        is_prior_to_genesis: bool,
         spec: &ChainSpec,
     ) -> Option<(Epoch, u64)> {
         for (validator_index, effective_balance) in validators_and_balance {
@@ -119,10 +123,15 @@ impl ValidatorRegistrations {
             // the node has enough time to subscribe to subnets etc, and to avoid having
             // inconsistent column counts within an epoch.
             let effective_delay_slots = CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS
-                .checked_div(spec.get_slot_duration().as_secs())
+                .checked_div(
+                    spec.get_slot_duration_ms(current_slot.epoch(E::slots_per_epoch())) / 1000,
+                )
                 .unwrap_or(1);
-            let effective_epoch =
-                (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
+            let effective_epoch = if is_prior_to_genesis {
+                E::genesis_epoch()
+            } else {
+                (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1
+            };
             self.epoch_validator_custody_requirements
                 .insert(effective_epoch, validator_custody_requirement);
             Some((effective_epoch, validator_custody_requirement))
@@ -402,6 +411,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
             .register_validators::<T::EthSpec>(
             validators_and_balance,
             current_slot,
+            self.slot_clock.is_prior_to_genesis().unwrap_or(false),
             &self.spec,
         ) else {
             return None;
@@ -558,7 +568,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
         } else {
             let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
             self.spec
-                .min_epoch_data_availability_boundary(current_epoch)
+                .min_epoch_data_availability_boundary::<T::EthSpec>(current_epoch)
         }
     }
 
@@ -656,11 +666,7 @@ mod tests {
     type T = EphemeralHarnessType<E>;
 
     fn testing_slot_clock(spec: &ChainSpec) -> TestingSlotClock {
-        TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        )
+        TestingSlotClock::from_spec::<E>(Duration::from_secs(0), spec)
     }
 
     fn setup_custody_context(
@@ -1028,6 +1034,71 @@ mod tests {
         assert_eq!(
             custody_context.num_of_custody_groups_to_sample(current_epoch + 1),
             validator_custody_units
+        );
+    }
+
+    #[test]
+    fn cgc_change_before_genesis_should_be_effective_from_genesis() {
+        let spec = Arc::new(E::default_spec());
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(100),
+            spec.genesis_slot_duration(),
+        );
+        slot_clock.set_current_time(Duration::from_secs(50));
+        let custody_context = CustodyContext::<T>::new(
+            NodeCustodyType::Fullnode,
+            generate_data_column_indices_rand_order::<E>(),
+            slot_clock.clone(),
+            false,
+            spec.clone(),
+        );
+        let validator_custody_units = 10;
+
+        let cgc_changed = custody_context
+            .register_validators(
+                vec![(
+                    0,
+                    validator_custody_units * spec.balance_per_additional_custody_group,
+                )],
+                slot_clock.now_or_genesis().unwrap(),
+            )
+            .expect("CGC should change");
+
+        assert_eq!(cgc_changed.effective_epoch, Epoch::new(0));
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(0)),
+            validator_custody_units
+        );
+    }
+
+    #[test]
+    fn cgc_change_at_genesis_slot_should_be_effective_after_delay() {
+        let spec = Arc::new(E::default_spec());
+        let custody_context = CustodyContext::<T>::new(
+            NodeCustodyType::Fullnode,
+            generate_data_column_indices_rand_order::<E>(),
+            testing_slot_clock(&spec),
+            false,
+            spec.clone(),
+        );
+        let default_sampling_size = custody_context.num_of_custody_groups_to_sample(Epoch::new(0));
+        let validator_custody_units = 10;
+
+        let cgc_changed = custody_context
+            .register_validators(
+                vec![(
+                    0,
+                    validator_custody_units * spec.balance_per_additional_custody_group,
+                )],
+                Slot::new(0),
+            )
+            .expect("CGC should change");
+
+        assert_eq!(cgc_changed.effective_epoch, Epoch::new(1));
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(0)),
+            default_sampling_size
         );
     }
 

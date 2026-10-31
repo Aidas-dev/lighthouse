@@ -9,9 +9,8 @@ use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
-    ProgressiveTransactions,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequestsElectra,
+    ExecutionRequestsGloas, ExecutionRequestsRef, ProgressiveTransactions,
 };
 
 #[superstruct(
@@ -43,10 +42,8 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_payload: &'block ExecutionPayloadElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: &'block ExecutionPayloadFulu<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: &'block ExecutionPayloadGloas<E>,
-    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
-    pub execution_payload: &'block ExecutionPayloadHeze<E>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub versioned_hashes: Vec<VersionedHash>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
@@ -83,7 +80,8 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Electra(request) => ExecutionPayloadRef::Electra(request.execution_payload),
             Self::Fulu(request) => ExecutionPayloadRef::Fulu(request.execution_payload),
             Self::Gloas(request) => ExecutionPayloadRef::Gloas(request.execution_payload),
-            Self::Heze(request) => ExecutionPayloadRef::Heze(request.execution_payload),
+            // The envelope payload is an `ExecutionPayloadGloas` for both Gloas and Heze.
+            Self::Heze(request) => ExecutionPayloadRef::Gloas(request.execution_payload),
         }
     }
 
@@ -247,12 +245,13 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
 // TODO(EIP-7732) build out the following when it's needed like in Mark's branch
 // impl<'a, E: EthSpec> TryFrom<ExecutionEnvelopeRef<'a, E>> for NewPayloadRequest<E> {
 
-#[cfg(test)]
+// The test block is a real mainnet block.
+#[cfg(all(test, not(feature = "spec-minimal")))]
 mod test {
     use crate::versioned_hashes::Error as VersionedHashError;
     use crate::{Error, NewPayloadRequest};
     use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
-    use types::{BeaconBlock, ExecPayload, ExecutionBlockHash, Hash256, MainnetEthSpec};
+    use types::{BeaconBlock, ExecPayload, ExecutionBlockHash, Hash256, Spec};
 
     #[test]
     fn test_optimistic_sync_verifications_valid_block() {
@@ -345,7 +344,7 @@ mod test {
         assert!(got_expected_result, "should return expected error");
     }
 
-    fn get_valid_beacon_block() -> BeaconBlock<MainnetEthSpec> {
+    fn get_valid_beacon_block() -> BeaconBlock<Spec> {
         BeaconBlock::Deneb(serde_json::from_str(r#"{
           "slot": "88160",
           "proposer_index": "583",

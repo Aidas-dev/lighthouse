@@ -190,7 +190,13 @@ test-debug:
 # is converted.
 test-spec-minimal:
 	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" \
+		-p beacon_processor \
+		-p builder_client \
+		-p execution_layer \
+		-p genesis \
+		-p http_metrics \
 		-p lighthouse_network \
+		-p store \
 		-p types
 
 # Runs cargo-fmt (linter).
@@ -247,10 +253,15 @@ test-http-api-%:
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(RECENT_FORKS))
 
+# Run operation pool tests on each preset. Tests named `payload_attestation_*` or
+# `attestation_payload_*` use minimal.
 test-op-pool-%:
 	env FORK_NAME=$* cargo nextest run --release \
 		--features "beacon_chain/fork_from_env,$(TEST_FEATURES)"\
-		-p operation_pool
+		-p operation_pool -E 'not (test(/::payload_attestation_/) | test(/::attestation_payload_/))'
+	env FORK_NAME=$* cargo nextest run --release \
+		--features "beacon_chain/fork_from_env,spec-minimal,$(TEST_FEATURES)"\
+		-p operation_pool -E 'test(/::payload_attestation_/) | test(/::attestation_payload_/)'
 
 # Run the tests in the `network` crate for all known forks.
 test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
@@ -368,9 +379,9 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	# ruint is not used through the vulnerable no-alloc conversion path in Lighthouse.
-	# remove ignore once we bump msrv (ruint 1.20 requires msrv to be >=1.90)
-	cargo audit --ignore RUSTSEC-2026-0220
+	# crypto-bigint 0.5 is used by alloy-signer via k256 0.13
+	# Remove the ignore when alloy-signer updates to k256 0.14
+	cargo audit --ignore RUSTSEC-2026-0387
 
 # Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
 deny: install-deny deny-CI

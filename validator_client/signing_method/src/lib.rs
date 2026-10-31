@@ -61,6 +61,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     /// EIP-8321: a hash-chain RANDAO commitment registration. Its domain is
     /// fork-agnostic, so the signing root is built here rather than via `SignedRoot`.
     RandaoCommitmentRegistration(&'a RandaoCommitmentRegistration),
+    InclusionList(&'a InclusionList),
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
@@ -91,6 +92,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload
                 domain,
             }
             .tree_hash_root(),
+            SignableMessage::InclusionList(l) => l.signing_root(domain),
         }
     }
 }
@@ -267,6 +269,7 @@ impl SigningMethod {
                     SignableMessage::RandaoCommitmentRegistration(_) => {
                         return Err(Error::RandaoCommitmentRegistrationUnsupported);
                     }
+                    SignableMessage::InclusionList(l) => Web3SignerObject::inclusion_list(l),
                 };
 
                 // Determine the Web3Signer message type.

@@ -28,7 +28,7 @@ use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     NetworkConfig, NetworkGlobals, PeerAction, PeerId,
     rpc::{RPCError, RequestType},
-    service::api_types::{AppRequestId, SyncRequestId},
+    service::api_types::SyncRequestId,
     types::SyncState,
 };
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -90,6 +90,14 @@ pub struct SimulateConfig {
     range_non_faulty_failures: usize,
     /// Number of BlocksByRange requests that return empty (no blocks)
     return_no_range_blocks_n_times: usize,
+    /// Number of BlocksByRange responses that drop a block from the middle, so the segment's
+    /// parent roots do not chain. Only the first batch requested is gapped.
+    return_gapped_range_blocks_n_times: usize,
+    /// Start slot of the batch picked by `return_gapped_range_blocks_n_times`.
+    gapped_range_start_slot: Option<u64>,
+    /// Slots dropped above. Their blobs are dropped too, so the batch fails on processing
+    /// rather than on coupling.
+    gapped_range_slots: HashSet<Slot>,
     /// Number of DataColumnsByRange requests that return empty (no columns)
     return_no_range_columns_n_times: usize,
     /// Number of DataColumnsByRange requests that return columns with unrequested indices
@@ -195,6 +203,11 @@ impl SimulateConfig {
 
     pub(super) fn with_no_range_blocks_n_times(mut self, n: usize) -> Self {
         self.return_no_range_blocks_n_times = n;
+        self
+    }
+
+    pub(super) fn with_gapped_range_blocks_n_times(mut self, n: usize) -> Self {
+        self.return_gapped_range_blocks_n_times = n;
         self
     }
 
@@ -505,9 +518,9 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id,
                         request,
-                        app_request_id,
+                        sync_request_id,
                     } => {
-                        self.simulate_on_request(peer_id, request, app_request_id);
+                        self.simulate_on_request(peer_id, request, sync_request_id);
                     }
                     NetworkMessage::ReportPeer { peer_id, msg, .. } => {
                         self.penalties.push(ReportedPenalty { peer_id, msg });
@@ -545,11 +558,11 @@ impl TestRig {
         &mut self,
         peer_id: PeerId,
         request: RequestType<E>,
-        app_req_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
     ) {
-        self.requests.push((request.clone(), app_req_id));
+        self.requests.push((request.clone(), sync_request_id));
 
-        if let AppRequestId::Sync(req_id) = app_req_id
+        if let Some(req_id) = sync_request_id
             && let Some(error) = self.complete_strategy.return_rpc_error.take()
         {
             self.log(&format!(
@@ -563,8 +576,8 @@ impl TestRig {
             return;
         }
 
-        match (request, app_req_id) {
-            (RequestType::BlocksByRoot(req), AppRequestId::Sync(req_id)) => {
+        match (request, sync_request_id) {
+            (RequestType::BlocksByRoot(req), Some(req_id)) => {
                 let blocks =
                     req.block_roots()
                         .iter()
@@ -589,7 +602,7 @@ impl TestRig {
                 self.send_rpc_blocks_response(req_id, peer_id, &blocks);
             }
 
-            (RequestType::DataColumnsByRoot(req), AppRequestId::Sync(req_id)) => {
+            (RequestType::DataColumnsByRoot(req), Some(req_id)) => {
                 if self.complete_strategy.return_no_data_n_times > 0 {
                     self.complete_strategy.return_no_data_n_times -= 1;
                     return self.send_rpc_columns_response(req_id, peer_id, &[]);
@@ -669,7 +682,7 @@ impl TestRig {
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
             }
 
-            (RequestType::PayloadEnvelopesByRoot(req), AppRequestId::Sync(req_id)) => {
+            (RequestType::PayloadEnvelopesByRoot(req), Some(req_id)) => {
                 // Lookup sync requests one envelope root at a time.
                 let block_root = req
                     .beacon_block_roots
@@ -687,7 +700,7 @@ impl TestRig {
                 self.send_rpc_envelope_response(req_id, peer_id, envelope);
             }
 
-            (RequestType::BlocksByRange(req), AppRequestId::Sync(req_id)) => {
+            (RequestType::BlocksByRange(req), Some(req_id)) => {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
                 }
@@ -713,13 +726,29 @@ impl TestRig {
                     self.complete_strategy.return_no_range_blocks_n_times -= 1;
                     self.send_rpc_blocks_response(req_id, peer_id, &[]);
                 } else {
-                    let blocks = (*req.start_slot()..req.start_slot() + req.count())
+                    let mut blocks = (*req.start_slot()..req.start_slot() + req.count())
                         .filter_map(|slot| {
                             self.network_blocks_by_slot
                                 .get(&Slot::new(slot))
                                 .map(|block| block.block_cloned())
                         })
                         .collect::<Vec<_>>();
+                    // Drop the second block, so the third block's parent root no longer matches
+                    // its predecessor.
+                    if self.complete_strategy.return_gapped_range_blocks_n_times > 0
+                        && blocks.len() > 2
+                    {
+                        let gapped_start_slot = *self
+                            .complete_strategy
+                            .gapped_range_start_slot
+                            .get_or_insert(*req.start_slot());
+                        if gapped_start_slot == *req.start_slot() {
+                            self.complete_strategy.return_gapped_range_blocks_n_times -= 1;
+                            self.complete_strategy
+                                .gapped_range_slots
+                                .insert(blocks.remove(1).slot());
+                        }
+                    }
                     self.send_rpc_blocks_response(req_id, peer_id, &blocks);
                 }
 
@@ -737,7 +766,7 @@ impl TestRig {
                 }
             }
 
-            (RequestType::BlobsByRange(req), AppRequestId::Sync(req_id)) => {
+            (RequestType::BlobsByRange(req), Some(req_id)) => {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
                 }
@@ -747,6 +776,12 @@ impl TestRig {
                 // - The genesis block never has blobs
                 // - Some blocks may not have blobs as the blob count is random
                 let blobs = (req.start_slot..req.start_slot + req.count)
+                    .filter(|slot| {
+                        !self
+                            .complete_strategy
+                            .gapped_range_slots
+                            .contains(&Slot::new(*slot))
+                    })
                     .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
                     .filter_map(|block| block.block_data().blobs())
                     .flat_map(|blobs| blobs.into_iter())
@@ -754,7 +789,7 @@ impl TestRig {
                 self.send_rpc_blobs_response(req_id, peer_id, &blobs);
             }
 
-            (RequestType::DataColumnsByRange(req), AppRequestId::Sync(req_id)) => {
+            (RequestType::DataColumnsByRange(req), Some(req_id)) => {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
                 }
@@ -844,7 +879,7 @@ impl TestRig {
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
             }
 
-            (RequestType::PayloadEnvelopesByRange(req), AppRequestId::Sync(req_id)) => {
+            (RequestType::PayloadEnvelopesByRange(req), Some(req_id)) => {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
                 }
@@ -863,11 +898,11 @@ impl TestRig {
                 self.send_rpc_envelopes_response(req_id, peer_id, &envelopes);
             }
 
-            (RequestType::Status(_req), AppRequestId::Status) => {
+            (RequestType::Status(_req), None) => {
                 // Ignore Status requests for now
             }
 
-            other => panic!("Request not supported: {app_req_id:?} {other:?}"),
+            other => panic!("Request not supported: {sync_request_id:?} {other:?}"),
         }
     }
 
@@ -1521,7 +1556,7 @@ impl TestRig {
                 .iter()
                 .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
                 .collect::<Vec<_>>(),
-            Vec::<&(RequestType<E>, AppRequestId)>::new(),
+            Vec::<&(RequestType<E>, Option<SyncRequestId>)>::new(),
             "There should be no block requests"
         );
     }
