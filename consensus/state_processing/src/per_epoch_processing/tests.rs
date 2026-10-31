@@ -253,7 +253,11 @@ async fn new_execution_withdrawal_credentials_deposits_are_applied_from_heze() {
     for heze_fork_epoch in [None, Some(Epoch::new(0))] {
         let (_, state) = process_pending_deposits(heze_fork_epoch, &deposits).await;
         for deposit in &deposits {
-            assert!(is_validator(&state, deposit));
+            assert!(
+                is_validator(&state, deposit),
+                "deposit prefix {} not applied at heze_fork_epoch {heze_fork_epoch:?}",
+                deposit.withdrawal_credentials.as_slice()[0]
+            );
         }
     }
 }
