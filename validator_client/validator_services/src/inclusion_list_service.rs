@@ -554,7 +554,8 @@ mod tests {
         let harness = TestHarness::new_with_validators(1).await;
         let service = &harness.service;
         let production_due = service.inclusion_list_production_due(Slot::new(0));
-        assert_eq!(production_due, Duration::from_secs(7));
+        // `inclusion_list_due_bps` (7500) of the 12s slot, minus the 1s production margin.
+        assert_eq!(production_due, Duration::from_secs(8));
 
         // Past the current slot's production time, so the next slot is targeted
         advance_time(&service.slot_clock, production_due).await;
