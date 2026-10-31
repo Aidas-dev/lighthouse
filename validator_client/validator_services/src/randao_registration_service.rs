@@ -147,7 +147,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> RandaoRegistrationServ
 
         let executor = self.executor.clone();
         let spec = self.spec.clone();
-        let slot_duration = spec.get_slot_duration();
+        let slot_duration = spec.genesis_slot_duration();
 
         let interval_fut = async move {
             loop {
