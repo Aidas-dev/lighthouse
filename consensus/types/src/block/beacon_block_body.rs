@@ -61,9 +61,6 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 ///
 /// Must match the `active_fields` attribute on the struct.
 pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS: [bool; 13] = [true; 13];
-pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE: [bool; 13] = [
-    true, false, true, true, true, true, false, true, true, true, true, true, true,
-];
 
 /// Heze `active_fields(width=13, gaps=(1, 6))` for the Heze `BeaconBlockBody`.
 ///

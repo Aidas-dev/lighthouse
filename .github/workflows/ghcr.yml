@@ -1,0 +1,90 @@
+name: ghcr
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Extra tag to publish alongside pr-eip8321"
+        required: false
+        default: ""
+  push:
+    branches:
+      - 'pr/eip8321'
+      - unstable
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTFLAGS: "-D warnings -C debuginfo=0"
+  CARGO_INCREMENTAL: 0
+  REGISTRY: ghcr.io
+
+jobs:
+  build-push:
+    name: build-push (${{ matrix.binary }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        binary: [lighthouse, lcli]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Get latest version of stable Rust
+        uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          cache-target: release
+
+      - name: Build binary
+        run: |
+          features=portable
+          if [ "${{ matrix.binary }}" = lighthouse ]; then
+            features=portable,gnosis,spec-minimal,slasher-lmdb,jemalloc
+          fi
+          cargo build --release --locked --bin ${{ matrix.binary }} --features "${features}"
+
+      - name: Move binary into Docker scope
+        run: |
+          mkdir -p bin
+          cp target/release/${{ matrix.binary }} bin/${{ matrix.binary }}
+
+      - name: Resolve image name and tags
+        id: meta
+        run: |
+          image="${REGISTRY}/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          branch="$(echo "${GITHUB_REF_NAME}" | tr '/' '-')"
+          short_sha="$(git rev-parse --short HEAD)"
+          {
+            echo "image=${image}"
+            echo "tags<<EOF"
+            echo "${image}:${branch}"
+            echo "${image}:sha-${short_sha}"
+            if [ -n "${{ inputs.tag }}" ]; then
+              echo "${image}:${{ inputs.tag }}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login "${REGISTRY}" \
+            --username "${{ github.actor }}" --password-stdin
+
+      - name: Build and push ${{ matrix.binary }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.binary == 'lcli' && './lcli/Dockerfile.cross' || './Dockerfile.cross' }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=${{ matrix.binary }}
