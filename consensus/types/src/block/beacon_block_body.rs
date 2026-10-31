@@ -1750,66 +1750,6 @@ mod tests {
         use crate::core::Spec;
         ssz_and_tree_hash_tests!(BeaconBlockBodyAltair<Spec>);
     }
-    mod heze {
-        use super::super::*;
-        use crate::block::BeaconBlock;
-        use crate::core::{ChainSpec, Spec};
-
-        /// Check the derived Heze body root against a manual computation using the Heze
-        /// `active_fields(width=13, gaps=(1, 6))` layout: `eth1_data` and `deposits` are gaps and
-        /// contribute `Bytes32()` field roots.
-        #[test]
-        fn heze_body_progressive_container_root() {
-            type E = Spec;
-            let spec: ChainSpec = ForkName::Heze.make_genesis_spec(E::default_spec());
-            let block: BeaconBlock<E> = BeaconBlock::empty(&spec);
-            let BeaconBlock::Heze(block) = block else {
-                panic!("expected a Heze block");
-            };
-            let body = &block.body;
-
-            let zero = Hash256::ZERO;
-            let field_roots = [
-                body.randao_reveal.tree_hash_root(),
-                zero, // eth1_data (gap)
-                body.graffiti.tree_hash_root(),
-                body.proposer_slashings.tree_hash_root(),
-                body.attester_slashings.tree_hash_root(),
-                body.attestations.tree_hash_root(),
-                zero, // deposits (gap)
-                body.voluntary_exits.tree_hash_root(),
-                body.sync_aggregate.tree_hash_root(),
-                body.bls_to_execution_changes.tree_hash_root(),
-                body.signed_execution_payload_bid.tree_hash_root(),
-                body.payload_attestations.tree_hash_root(),
-                body.parent_execution_requests.tree_hash_root(),
-            ];
-
-            let mut hasher = tree_hash::ProgressiveMerkleHasher::new();
-            for root in &field_roots {
-                hasher.write(root.as_slice()).unwrap();
-            }
-            let container_root = hasher.finish().unwrap();
-
-            // `active_fields = [1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1]`, bit-packed LE.
-            let mut active_fields = [0u8; 32];
-            active_fields[0] = 0xbd;
-            active_fields[1] = 0x1f;
-            let expected = tree_hash::mix_in_active_fields(&container_root, active_fields);
-
-            assert_eq!(body.tree_hash_root(), expected);
-
-            assert_eq!(
-                field_roots.len(),
-                BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE.len()
-            );
-            assert_eq!(
-                merkle_proof::pack_active_fields(&BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE).unwrap(),
-                Hash256::from(active_fields)
-            );
-        }
-    }
-
     mod eip8321 {
         use super::super::*;
         use crate::block::BeaconBlock;
@@ -1932,6 +1872,60 @@ mod tests {
         use super::super::*;
         use crate::block::BeaconBlock;
         use crate::core::{ChainSpec, Spec};
+
+        /// Check the derived Heze body root against a manual computation using the Heze
+        /// `active_fields(width=13, gaps=(1, 6))` layout: `eth1_data` and `deposits` are gaps and
+        /// contribute `Bytes32()` field roots.
+        #[test]
+        fn heze_body_progressive_container_root() {
+            type E = Spec;
+            let spec: ChainSpec = ForkName::Heze.make_genesis_spec(E::default_spec());
+            let block: BeaconBlock<E> = BeaconBlock::empty(&spec);
+            let BeaconBlock::Heze(block) = block else {
+                panic!("expected a Heze block");
+            };
+            let body = &block.body;
+
+            let zero = Hash256::ZERO;
+            let field_roots = [
+                body.randao_reveal.tree_hash_root(),
+                zero, // eth1_data (gap)
+                body.graffiti.tree_hash_root(),
+                body.proposer_slashings.tree_hash_root(),
+                body.attester_slashings.tree_hash_root(),
+                body.attestations.tree_hash_root(),
+                zero, // deposits (gap)
+                body.voluntary_exits.tree_hash_root(),
+                body.sync_aggregate.tree_hash_root(),
+                body.bls_to_execution_changes.tree_hash_root(),
+                body.signed_execution_payload_bid.tree_hash_root(),
+                body.payload_attestations.tree_hash_root(),
+                body.parent_execution_requests.tree_hash_root(),
+            ];
+
+            let mut hasher = tree_hash::ProgressiveMerkleHasher::new();
+            for root in &field_roots {
+                hasher.write(root.as_slice()).unwrap();
+            }
+            let container_root = hasher.finish().unwrap();
+
+            // `active_fields = [1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1]`, bit-packed LE.
+            let mut active_fields = [0u8; 32];
+            active_fields[0] = 0xbd;
+            active_fields[1] = 0x1f;
+            let expected = tree_hash::mix_in_active_fields(&container_root, active_fields);
+
+            assert_eq!(body.tree_hash_root(), expected);
+
+            assert_eq!(
+                field_roots.len(),
+                BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE.len()
+            );
+            assert_eq!(
+                merkle_proof::pack_active_fields(&BEACON_BLOCK_BODY_ACTIVE_FIELDS_HEZE).unwrap(),
+                Hash256::from(active_fields)
+            );
+        }
 
         ssz_and_tree_hash_tests!(BeaconBlockBodyHeze<Spec>);
 
