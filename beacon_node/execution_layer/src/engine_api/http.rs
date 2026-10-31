@@ -1128,7 +1128,7 @@ impl HttpJsonRpc {
         match fork_name {
             // TODO(heze): deliberately reusing the Gloas response containers while the Heze
             // payload is identical to the Gloas one. Switch to the Heze types if it diverges
-            ForkName::Gloas | ForkName::Heze => {
+            ForkName::Gloas | ForkName::Heze | ForkName::Eip8321 => {
                 let response: JsonGetPayloadResponseGloas<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V6,
