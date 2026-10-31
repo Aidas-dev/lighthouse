@@ -8277,7 +8277,7 @@ dependencies = [
 
 [[package]]
 name = "randao_chain"
-version = "8.3.0"
+version = "8.4.0-rc.0"
 dependencies = [
  "account_utils",
  "blake3",

@@ -1076,6 +1076,19 @@ async fn invalid_signature_attester_slashing() {
                     })
                     .unwrap();
             }
+            BeaconBlockBodyRefMut::Eip8321(blk) => {
+                let slashing = attester_slashing.as_electra().unwrap().clone();
+                blk.attester_slashings
+                    .push(AttesterSlashingGloas {
+                        attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
+                            .to_gloas()
+                            .unwrap(),
+                        attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
+                            .to_gloas()
+                            .unwrap(),
+                    })
+                    .unwrap();
+            }
         }
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));

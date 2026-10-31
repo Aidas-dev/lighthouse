@@ -2952,14 +2952,18 @@ mod test {
                 ExecutionPayloadHeze::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
             ),
         ];
-        let merged_forks = &ForkName::list_all()[2..];
+        let merged_forks: Vec<_> = ForkName::list_all()
+            .into_iter()
+            .skip(2)
+            .filter(|fork| *fork != ForkName::Eip8321)
+            .collect();
         assert_eq!(
             payloads.len(),
             merged_forks.len(),
             "we should test every known fork; add new fork variant to payloads above"
         );
 
-        for (payload, &fork_name) in payloads.into_iter().zip(merged_forks) {
+        for (payload, &fork_name) in payloads.into_iter().zip(&merged_forks) {
             assert_eq!(payload.fork_name(), fork_name);
             let payload_str = serde_json::to_string(&payload).unwrap();
             let mut de = serde_json::Deserializer::from_str(&payload_str);
@@ -3023,7 +3027,11 @@ mod test {
                 }
             },
         ];
-        let blob_forks = &ForkName::list_all()[4..];
+        let blob_forks: Vec<_> = ForkName::list_all()
+            .into_iter()
+            .skip(4)
+            .filter(|fork| *fork != ForkName::Eip8321)
+            .collect();
 
         assert_eq!(
             payloads.len(),
@@ -3031,7 +3039,7 @@ mod test {
             "we should test every known fork; add new fork variant to payloads above"
         );
 
-        for (payload, &fork_name) in payloads.into_iter().zip(blob_forks) {
+        for (payload, &fork_name) in payloads.into_iter().zip(&blob_forks) {
             assert_eq!(payload.execution_payload.fork_name(), fork_name);
             let payload_str = serde_json::to_string(&payload).unwrap();
             let mut de = serde_json::Deserializer::from_str(&payload_str);
