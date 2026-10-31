@@ -1308,6 +1308,7 @@ async fn prepare_payload_inclusion_lists_used_in_block_production() {
             GraffitiSettings::new(None, None),
             ProduceBlockVerification::VerifyRandao,
             eth2::types::BuilderConfig::empty(),
+            None,
         )
         .await
         .unwrap();
@@ -1414,6 +1415,7 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_block_production() {
             GraffitiSettings::new(None, None),
             ProduceBlockVerification::VerifyRandao,
             eth2::types::BuilderConfig::empty(),
+            None,
         )
         .await
         .unwrap();
@@ -2255,6 +2257,7 @@ async fn bid_stream_generic(negative_ptc: bool, direct_bids: bool) {
             GraffitiSettings::Unspecified,
             ProduceBlockVerification::VerifyRandao,
             builder_config,
+            None,
         )
         .await
         .unwrap();

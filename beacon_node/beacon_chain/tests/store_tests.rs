@@ -262,7 +262,7 @@ fn make_light_client_update<E: EthSpec>(
             update.signature_slot = marker_slot;
             LightClientUpdate::Fulu(update)
         }
-        ForkName::Gloas | ForkName::Heze => {
+        ForkName::Gloas | ForkName::Heze | ForkName::Eip8321 => {
             let mut update = test_arbitrary_instance::<LightClientUpdateGloas<E>>();
             update.signature_slot = marker_slot;
             LightClientUpdate::Gloas(update)
